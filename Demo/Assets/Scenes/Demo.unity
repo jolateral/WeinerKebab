@@ -1056,9 +1056,9 @@ MonoBehaviour:
   maxOpeningWidth: 2.5
   openingsPerFloor: 1
   minOffsetFromLastFloor: 2.5
-  fanChance: 0.97
-  wireChance: 0
-  steamChance: 0
+  fanChance: 0.3
+  wireChance: 0.3
+  steamChance: 0.3
   chuteChance: 0
 --- !u!4 &1644972442
 Transform:
