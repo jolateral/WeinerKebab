@@ -5,8 +5,7 @@ using UnityEngine;
 public class PlayerController : MonoBehaviour
 {
     [Header("Movement")]
-    [Tooltip("How much faster the player moves compared to the camera rise speed")]
-    public float speedMultiplierOverCamera = 3f;
+    public float speedMultiplierOverCamera = 2.5f;
     public Direction startingDirection = Direction.Up;
     [HideInInspector] public Direction currentDirection;
 
@@ -29,7 +28,6 @@ public class PlayerController : MonoBehaviour
     private Rigidbody2D rb;
     private JunctionTrigger currentJunction;
 
-    // Player speed is always relative to camera so player never races away
     private float BaseSpeed =>
         CameraRiseController.Instance != null
             ? CameraRiseController.Instance.CurrentRiseSpeed * speedMultiplierOverCamera

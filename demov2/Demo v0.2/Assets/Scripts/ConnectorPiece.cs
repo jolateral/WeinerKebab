@@ -1,13 +1,12 @@
 using UnityEngine;
 
-// Attach to the ConnectorPiece prefab root.
-// centerEntry = where the player arrives from below (bottom center)
-// leftExit    = where the left maze's entry point should connect
-// rightExit   = where the right maze's entry point should connect
 public class ConnectorPiece : MonoBehaviour
 {
+    [Tooltip("Bottom center — where the player arrives from below")]
     public Transform centerEntry;
+    [Tooltip("Top left — where the left maze's entryPoint connects")]
     public Transform leftExit;
+    [Tooltip("Top right — where the right maze's entryPoint connects")]
     public Transform rightExit;
 
     private void OnDrawGizmos()

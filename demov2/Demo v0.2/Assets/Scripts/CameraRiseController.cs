@@ -14,18 +14,14 @@ public class CameraRiseController : MonoBehaviour
     public float maxRiseSpeed = 3.5f;
 
     [Header("Kill Zone")]
-    [Tooltip("How far below the camera bottom edge before death triggers")]
     public float killZoneBuffer = 0.5f;
 
     [Header("Portrait Framing")]
-    [Tooltip("How far above the player the camera looks — lets player see upcoming mazes")]
-    public float lookAheadAbovePlayer = 6f;
-    [Tooltip("Smoothing on the vertical camera follow")]
-    public float verticalFollowSpeed = 1.5f;
+    public float lookAheadAbovePlayer = 10f;
+    public float verticalFollowSpeed = 3f;
 
     private Camera cam;
     private float currentRiseSpeed;
-    private float targetY;
 
     private void Awake()
     {
@@ -38,25 +34,26 @@ public class CameraRiseController : MonoBehaviour
     {
         if (GameManager.Instance == null || GameManager.Instance.isGameOver) return;
 
-        // Accelerate rise
         currentRiseSpeed = Mathf.Min(maxRiseSpeed,
             currentRiseSpeed + riseAcceleration * Time.deltaTime);
 
-        // Target Y keeps the player in the lower portion of screen
-        // with lots of look-ahead above so they can see upcoming mazes
-        if (player != null)
-            targetY = player.position.y + lookAheadAbovePlayer;
-
         Vector3 pos = transform.position;
-        // Rise constantly but also smoothly follow the target
-        pos.y += currentRiseSpeed * Time.deltaTime;
-        pos.y = Mathf.Max(pos.y, Mathf.Lerp(pos.y, targetY,
-            verticalFollowSpeed * Time.deltaTime));
-        // X stays fixed — no horizontal follow for portrait mode
+
+        if (player != null)
+        {
+            float targetY = player.position.y + lookAheadAbovePlayer;
+            float risenY = pos.y + currentRiseSpeed * Time.deltaTime;
+            float followedY = Mathf.Lerp(pos.y, targetY, verticalFollowSpeed * Time.deltaTime);
+            pos.y = Mathf.Max(risenY, followedY);
+        }
+        else
+        {
+            pos.y += currentRiseSpeed * Time.deltaTime;
+        }
+
         pos.x = 0f;
         transform.position = pos;
 
-        // Kill zone check
         if (player != null)
         {
             float bottomEdge = transform.position.y - cam.orthographicSize - killZoneBuffer;

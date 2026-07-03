@@ -1,9 +1,6 @@
 using UnityEngine;
 using UnityEngine.UI;
 
-// Attach to any object in your Canvas. Uses legacy UI Text so there's
-// no dependency on importing TextMeshPro for the demo -- swap to TMP_Text
-// later if you'd prefer.
 public class ScoreUI : MonoBehaviour
 {
     [Header("HUD")]
@@ -17,8 +14,7 @@ public class ScoreUI : MonoBehaviour
     {
         UpdateScore(GameManager.Instance.score);
         GameManager.Instance.OnScoreChanged += UpdateScore;
-        GameManager.Instance.OnGameOver += ShowGameOver;
-
+        GameManager.Instance.OnGameOver     += ShowGameOver;
         if (gameOverPanel != null) gameOverPanel.SetActive(false);
     }
 
@@ -27,24 +23,20 @@ public class ScoreUI : MonoBehaviour
         if (GameManager.Instance != null)
         {
             GameManager.Instance.OnScoreChanged -= UpdateScore;
-            GameManager.Instance.OnGameOver -= ShowGameOver;
+            GameManager.Instance.OnGameOver     -= ShowGameOver;
         }
     }
 
-    private void UpdateScore(int newScore)
+    private void UpdateScore(int s)
     {
-        if (scoreText != null) scoreText.text = "Floors Cleared: " + newScore;
+        if (scoreText != null) scoreText.text = "Floors: " + s;
     }
 
     private void ShowGameOver()
     {
-        if (gameOverPanel != null) gameOverPanel.SetActive(true);
-        if (finalScoreText != null) finalScoreText.text = "Floors Cleared: " + GameManager.Instance.score;
+        if (gameOverPanel  != null) gameOverPanel.SetActive(true);
+        if (finalScoreText != null) finalScoreText.text = "Floors: " + GameManager.Instance.score;
     }
 
-    // Hook this up to your Restart button's OnClick.
-    public void OnRestartButtonPressed()
-    {
-        GameManager.Instance.RestartGame();
-    }
+    public void OnRestartButtonPressed() => GameManager.Instance.RestartGame();
 }

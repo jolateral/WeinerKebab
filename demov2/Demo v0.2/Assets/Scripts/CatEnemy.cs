@@ -1,10 +1,5 @@
 using UnityEngine;
 
-// A simple back-and-forth patroller. Assign pointA and pointB (empty
-// Transforms placed in the maze prefab) and the cat will walk between
-// them. Touching the player ends the run. Give this object a Kinematic
-// Rigidbody2D in addition to its trigger collider so Unity's 2D physics
-// tracks it correctly while it moves.
 [RequireComponent(typeof(Collider2D))]
 [RequireComponent(typeof(Rigidbody2D))]
 public class CatEnemy : MonoBehaviour
@@ -21,7 +16,6 @@ public class CatEnemy : MonoBehaviour
     {
         Collider2D col = GetComponent<Collider2D>();
         if (col != null) col.isTrigger = true;
-
         Rigidbody2D body = GetComponent<Rigidbody2D>();
         if (body != null) body.bodyType = RigidbodyType2D.Kinematic;
     }
