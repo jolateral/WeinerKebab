@@ -171,7 +171,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: UnityEngine.UI::UnityEngine.UI.Image
   m_Material: {fileID: 0}
-  m_Color: {r: 0, g: 0, b: 0, a: 0.003921569}
+  m_Color: {r: 0, g: 0, b: 0, a: 0.33333334}
   m_RaycastTarget: 1
   m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
   m_Maskable: 1
@@ -206,19 +206,23 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: 5232755921467972655, guid: 2a361578c9ad5406d8bee4ed036f5224, type: 3}
       propertyPath: m_Size.x
-      value: 0.5
+      value: 0.4
       objectReference: {fileID: 0}
     - target: {fileID: 5232755921467972655, guid: 2a361578c9ad5406d8bee4ed036f5224, type: 3}
       propertyPath: m_Size.y
-      value: 0.5
+      value: 0.4
+      objectReference: {fileID: 0}
+    - target: {fileID: 5608903129796779233, guid: 2a361578c9ad5406d8bee4ed036f5224, type: 3}
+      propertyPath: m_SortingOrder
+      value: 10
       objectReference: {fileID: 0}
     - target: {fileID: 6497757911723408688, guid: 2a361578c9ad5406d8bee4ed036f5224, type: 3}
       propertyPath: m_LocalScale.x
-      value: 0.8
+      value: 2
       objectReference: {fileID: 0}
     - target: {fileID: 6497757911723408688, guid: 2a361578c9ad5406d8bee4ed036f5224, type: 3}
       propertyPath: m_LocalScale.y
-      value: 0.8
+      value: 2
       objectReference: {fileID: 0}
     - target: {fileID: 6497757911723408688, guid: 2a361578c9ad5406d8bee4ed036f5224, type: 3}
       propertyPath: m_LocalPosition.x
@@ -265,8 +269,8 @@ PrefabInstance:
       value: Player
       objectReference: {fileID: 0}
     - target: {fileID: 8191895696285857273, guid: 2a361578c9ad5406d8bee4ed036f5224, type: 3}
-      propertyPath: baseSpeed
-      value: 2
+      propertyPath: speedMultiplierOverCamera
+      value: 2.5
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
@@ -378,10 +382,10 @@ MonoBehaviour:
       m_Calls: []
   m_FontData:
     m_Font: {fileID: 10102, guid: 0000000000000000e000000000000000, type: 0}
-    m_FontSize: 14
+    m_FontSize: 28
     m_FontStyle: 0
     m_BestFit: 0
-    m_MinSize: 10
+    m_MinSize: 2
     m_MaxSize: 40
     m_Alignment: 4
     m_AlignByGeometry: 0
@@ -648,7 +652,7 @@ MonoBehaviour:
     m_HorizontalOverflow: 0
     m_VerticalOverflow: 0
     m_LineSpacing: 1
-  m_Text: 'Floors Cleared: 0'
+  m_Text: 'Floors: 0'
 --- !u!222 &933026433
 CanvasRenderer:
   m_ObjectHideFlags: 0
@@ -673,8 +677,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 1}
   m_AnchorMax: {x: 0, y: 1}
-  m_AnchoredPosition: {x: 10, y: -10}
-  m_SizeDelta: {x: 160, y: 30}
+  m_AnchoredPosition: {x: 60, y: -20}
+  m_SizeDelta: {x: 200, y: 40}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!1 &1183172033
 GameObject:
@@ -712,7 +716,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: 0, y: -64}
+  m_AnchoredPosition: {x: 0, y: -60}
   m_SizeDelta: {x: 160, y: 30}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1183172035
@@ -925,8 +929,8 @@ MonoBehaviour:
   riseAcceleration: 0.015
   maxRiseSpeed: 3.5
   killZoneBuffer: 0.5
-  lookAheadAbovePlayer: 6
-  verticalFollowSpeed: 1.5
+  lookAheadAbovePlayer: 8
+  verticalFollowSpeed: 3
 --- !u!114 &1544659671
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1003,9 +1007,9 @@ MonoBehaviour:
   mazeLibrary: {fileID: 11400000, guid: 53bca7ac4f76a411cabf6b6a00e86813, type: 2}
   player: {fileID: 1235116757}
   firstMazePrefab: {fileID: 7623410728936851216, guid: 5369b4970331a403fa467a69cd63ac7f, type: 3}
-  sideBySideSpacing: 5
+  sideBySideSpacing: 6
   doubleMazeChance: 0.5
-  connectorPiecePrefab: {fileID: 7482955846732907465, guid: d54336b10342f446e9e13cbba4ac479e, type: 3}
+  preSpawnAhead: 4
   easyWeightOverProgress:
     serializedVersion: 2
     m_Curve:
@@ -1146,7 +1150,7 @@ MonoBehaviour:
     m_HorizontalOverflow: 0
     m_VerticalOverflow: 0
     m_LineSpacing: 1
-  m_Text: New Text
+  m_Text: 'Floors: 0'
 --- !u!222 &1706731458
 CanvasRenderer:
   m_ObjectHideFlags: 0

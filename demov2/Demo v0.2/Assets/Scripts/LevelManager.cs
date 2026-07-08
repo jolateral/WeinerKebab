@@ -14,13 +14,12 @@ public class LevelManager : MonoBehaviour
     public GameObject firstMazePrefab;
 
     [Header("Layout")]
-    [Tooltip("Horizontal distance between centers of side-by-side mazes")]
     public float sideBySideSpacing = 6f;
     [Range(0f, 1f)]
     public float doubleMazeChance = 0.5f;
 
     [Header("Lookahead")]
-    [Tooltip("How many maze layers to pre-spawn above the current one")]
+    [Tooltip("How many maze layers to pre-spawn above the current one at start")]
     public int preSpawnAhead = 2;
 
     [Header("Difficulty Scaling")]
@@ -33,7 +32,6 @@ public class LevelManager : MonoBehaviour
     public float despawnDistanceBehind = 80f;
 
     // ── State ─────────────────────────────────────────────────────
-    // The Y and X positions where the NEXT connector should start from.
     private float   currentExitY          = 0f;
     private float[] currentExitXPositions = new float[] { 0f };
 
@@ -44,25 +42,26 @@ public class LevelManager : MonoBehaviour
 
     private void Start()
     {
-        // Always start with a guaranteed single centered maze
+        // 1. Spawn the first maze — this sets currentExitY and currentExitXPositions
         GameObject startPrefab = firstMazePrefab != null
             ? firstMazePrefab
             : PickWeightedMaze();
-
         SpawnMazeAt(startPrefab, 0f, 0f);
 
-        // currentExitY and currentExitXPositions are now set by SpawnMazeAt
-        // Pre-spawn layers above
+        // 2. Pre-spawn layers above so player never sees mazes pop in
+        // State is correct at this point so these chain correctly
         for (int i = 0; i < preSpawnAhead; i++)
             SpawnNextLayer();
     }
 
     private void Update() => CleanupOldObjects();
 
+    // Called by MazeExitMarker when player reaches any maze exit
     public void OnPlayerReachedExit()
     {
         if (GameManager.Instance.isGameOver) return;
         GameManager.Instance.AddScore(1);
+        // Spawn exactly ONE new layer ahead to keep the lookahead buffer filled
         SpawnNextLayer();
     }
 
@@ -79,7 +78,6 @@ public class LevelManager : MonoBehaviour
 
     private void SpawnSingleLayer()
     {
-        // One maze centered at X=0
         float[] toPositions = new float[] { 0f };
 
         GameObject connector = ProceduralConnector.Build(
@@ -91,7 +89,6 @@ public class LevelManager : MonoBehaviour
 
         float mazeExitY = SpawnMazeAt(PickWeightedMaze(), 0f, connectorTop);
 
-        // Update state for the NEXT layer
         currentExitY          = mazeExitY;
         currentExitXPositions = toPositions;
     }
@@ -102,7 +99,6 @@ public class LevelManager : MonoBehaviour
         float rightX =  sideBySideSpacing * 0.5f;
         float[] toPositions = new float[] { leftX, rightX };
 
-        // Build connector from previous exits to exactly two new columns
         GameObject connector = ProceduralConnector.Build(
             currentExitXPositions,
             toPositions,
@@ -110,19 +106,15 @@ public class LevelManager : MonoBehaviour
             out float connectorTop);
         spawnedObjects.Add(connector);
 
-        // Spawn exactly two mazes — one left, one right, nothing else
         float exitAY = SpawnMazeAt(PickWeightedMaze(), leftX,  connectorTop);
         float exitBY = SpawnMazeAt(PickWeightedMaze(), rightX, connectorTop);
 
-        // Update state for the NEXT layer
         currentExitY          = Mathf.Max(exitAY, exitBY);
-        currentExitXPositions = toPositions;  // exactly {leftX, rightX}
+        currentExitXPositions = toPositions;
     }
 
-    // Spawns one maze so its entryPoint lands at (centerX, fromY).
+    // Spawns one maze with its entryPoint at (centerX, fromY).
     // Returns the world Y of this maze's exit.
-    // Also updates currentExitY/currentExitXPositions when it's the
-    // very first spawn (snap player to entry).
     private float SpawnMazeAt(GameObject prefab, float centerX, float fromY)
     {
         if (prefab == null) return fromY;
@@ -137,26 +129,25 @@ public class LevelManager : MonoBehaviour
             return fromY;
         }
 
-        // Move so entryPoint lands exactly at (centerX, fromY)
         Vector3 entryLocal = seg.entryPoint.localPosition;
         instance.transform.position = new Vector3(
             centerX - entryLocal.x,
             fromY   - entryLocal.y,
             0f);
 
-        // Ensure all pipe sprites render behind the player
+        // Ensure pipes always render behind the player
         foreach (SpriteRenderer sr in instance.GetComponentsInChildren<SpriteRenderer>())
-            if (sr.sortingOrder < 1)
-                sr.sortingOrder = 0;
+            sr.sortingOrder = 0;
 
         spawnedObjects.Add(instance);
 
+        // First maze only: snap player to entry and record initial state
         if (isFirstSpawn && player != null)
         {
-            player.position = seg.entryPoint.position;
+            player.position       = seg.entryPoint.position;
             currentExitY          = seg.exitPoint.position.y;
             currentExitXPositions = new float[] { centerX };
-            isFirstSpawn = false;
+            isFirstSpawn          = false;
         }
 
         return seg.exitPoint.position.y;
