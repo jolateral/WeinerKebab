@@ -13,5 +13,9 @@ MonoBehaviour:
   m_Name: MazeLibrary
   m_EditorClassIdentifier: Assembly-CSharp::MazeLibrary
   mazes:
-  - mazePrefab: {fileID: 7623410728936851216, guid: 5369b4970331a403fa467a69cd63ac7f, type: 3}
+  - mazePrefab: {fileID: 2740544896178488914, guid: 88e771922dd75458ab0af59f4ba24d35, type: 3}
     difficulty: 0
+  - mazePrefab: {fileID: 2740544896178488914, guid: d79dbd1ceef114b50bcbfa30cc4d971e, type: 3}
+    difficulty: 1
+  - mazePrefab: {fileID: 2740544896178488914, guid: 137f6d2a0192442769cb26bcbba4c764, type: 3}
+    difficulty: 2
