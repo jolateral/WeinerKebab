@@ -190,4 +190,4 @@ MonoBehaviour:
   wallLayerMask:
     serializedVersion: 2
     m_Bits: 64
-  wallCheckBuffer: 0.05
+  wallCheckBuffer: 0.03

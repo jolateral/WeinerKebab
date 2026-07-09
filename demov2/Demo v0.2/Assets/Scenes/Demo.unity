@@ -1007,7 +1007,7 @@ MonoBehaviour:
   mazeLibrary: {fileID: 11400000, guid: 53bca7ac4f76a411cabf6b6a00e86813, type: 2}
   player: {fileID: 1235116757}
   firstMazePrefab: {fileID: 7623410728936851216, guid: 5369b4970331a403fa467a69cd63ac7f, type: 3}
-  sideBySideSpacing: 6
+  sideBySideSpacing: 5
   doubleMazeChance: 0.5
   preSpawnAhead: 4
   easyWeightOverProgress:
