@@ -20,7 +20,11 @@ public class WireObstacle : MonoBehaviour
     private void Start()
     {
         sr = GetComponent<SpriteRenderer>();
-        if (sr != null) sr.color = activeColour;
+        if (sr != null)
+        {
+            sr.color = activeColour;
+            sr.sortingOrder = 5; // must draw above pipes (order 0)
+        }
     }
 
     private void Update()

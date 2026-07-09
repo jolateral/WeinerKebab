@@ -25,7 +25,11 @@ public class FanObstacle : MonoBehaviour
     private void Start()
     {
         SpriteRenderer sr = GetComponent<SpriteRenderer>();
-        if (sr != null) sr.color = new Color(0.4f, 0.85f, 1f, 0.6f); // placeholder light blue
+        if (sr != null)
+        {
+            sr.color = new Color(0.4f, 0.85f, 1f, 0.6f); // placeholder light blue
+            sr.sortingOrder = 5; // must draw above pipes (order 0)
+        }
     }
 
     private void OnTriggerEnter2D(Collider2D col) => ApplyOrClear(col, true);
