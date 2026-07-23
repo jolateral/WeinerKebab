@@ -25,8 +25,12 @@ public class PlayerController : MonoBehaviour
     public LayerMask wallLayerMask;
     public float wallCheckBuffer = 0.05f;
 
+    [Header("Junction Settling")]
+    public float junctionStopDeceleration = 4f;
+
     private Rigidbody2D rb;
     private JunctionTrigger currentJunction;
+    private float currentJunctionStopSpeed;
 
     private float BaseSpeed =>
         CameraRiseController.Instance != null
@@ -77,25 +81,74 @@ public class PlayerController : MonoBehaviour
         transform.position = pos;
     }
 
-    private void Move()
-    {
-        float speed = BaseSpeed * fanMultiplier;
-        if (inSteam) speed *= steamSpeedMultiplier;
-        if (isStunned) speed = 0f;
-        if (speed <= 0f) return;
+ private bool isDeceleratingAtJunction = false;
 
-        Vector2 dirVector = DirectionToVector(currentDirection);
-        float step = speed * Time.fixedDeltaTime;
+private void Move()
+{
+    float speed = BaseSpeed * fanMultiplier;
+    if (inSteam) speed *= steamSpeedMultiplier;
+    if (isStunned)
+    {
+        currentJunctionStopSpeed = 0f;
+        isDeceleratingAtJunction = false;
+        rb.linearVelocity = Vector2.zero;
+        rb.angularVelocity = 0f;
+        return;
+    }
+    if (speed <= 0f) return;
+
+    Vector2 dirVector = DirectionToVector(currentDirection);
+
+    if (currentJunction != null && !currentJunction.CanGo(currentDirection))
+    {
+        // Start (or continue) decelerating toward a full stop.
+        if (!isDeceleratingAtJunction)
+        {
+            currentJunctionStopSpeed = speed;
+            isDeceleratingAtJunction = true;
+        }
+
+        currentJunctionStopSpeed = Mathf.Max(0f, currentJunctionStopSpeed - junctionStopDeceleration * Time.fixedDeltaTime);
+
+        if (currentJunctionStopSpeed <= 0f)
+        {
+            rb.linearVelocity = Vector2.zero;
+            rb.angularVelocity = 0f;
+            return; // stays fully stopped, no refill
+        }
+
+        float step = currentJunctionStopSpeed * Time.fixedDeltaTime;
 
         if (useWallBlocking)
         {
             RaycastHit2D hit = Physics2D.Raycast(rb.position, dirVector,
                 step + wallCheckBuffer, wallLayerMask);
-            if (hit.collider != null) return;
+            if (hit.collider != null)
+            {
+                rb.linearVelocity = Vector2.zero;
+                rb.angularVelocity = 0f;
+                return;
+            }
         }
 
         rb.MovePosition(rb.position + dirVector * step);
+        return;
     }
+
+    // Path is open again — reset deceleration state.
+    isDeceleratingAtJunction = false;
+    currentJunctionStopSpeed = 0f;
+    float stepSize = speed * Time.fixedDeltaTime;
+
+    if (useWallBlocking)
+    {
+        RaycastHit2D hit = Physics2D.Raycast(rb.position, dirVector,
+            stepSize + wallCheckBuffer, wallLayerMask);
+        if (hit.collider != null) return;
+    }
+
+    rb.MovePosition(rb.position + dirVector * stepSize);
+}
 
     public static Vector2 DirectionToVector(Direction d)
     {
