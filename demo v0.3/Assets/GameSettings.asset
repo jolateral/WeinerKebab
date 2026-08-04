@@ -1,0 +1,29 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1149361030821478886e7151d4a5b99b, type: 3}
+  m_Name: GameSettings
+  m_EditorClassIdentifier: Assembly-CSharp::GameSettings
+  playerSpeed: 3.2
+  playerAccel: 12
+  stunDurationSeconds: 0.5
+  steamSpeedMultiplier: 0.45
+  fanForce: 6
+  floodRiseSpeedBase: 1.4
+  floodRiseRampPerSec: 0.03
+  killMarginBelowCamera: 4.5
+  columns: 7
+  cellSize: 1.6
+  rowsPerBand: 8
+  bandsAheadBuffer: 3
+  steamChance: 0.1
+  wireChance: 0.07
+  fanChance: 0.07
