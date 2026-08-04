@@ -534,6 +534,7 @@ MonoBehaviour:
   player: {fileID: 1410175461}
   settings: {fileID: 11400000, guid: b5a59f26be8534d4681dde46a9d102ed, type: 2}
   mazeGenerator: {fileID: 228753479}
+  playerController: {fileID: 1410175462}
   verticalPadding: 3
   smoothTime: 0.15
   horizontalPadding: 0.4

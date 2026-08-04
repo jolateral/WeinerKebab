@@ -103,7 +103,7 @@ public class MazeGenerator : MonoBehaviour
 
             if (options.Count == 0) { stack.Pop(); continue; }
 
-            var pick = options[rng.Next(options.Count)];
+            var pick = WeightedPick(options, rng);
             SetWall(band[r][c], pick.wallHere, false);
             SetWall(band[pick.nr][pick.nc], pick.wallThere, false);
             band[pick.nr][pick.nc].visited = true;
@@ -121,6 +121,21 @@ public class MazeGenerator : MonoBehaviour
         SpawnBandGeometry(startRow, numRows, band, path);
 
         return exitCol;
+    }
+
+    // Biases the random walk toward the upward-opening neighbor (if available) so corridors trend
+    // vertical instead of wandering sideways as much. This keeps the "true" path length closer to
+    // the straight-line height gained, which is what the rising flood actually measures - without
+    // this, a maze with lots of turns can force far more travel distance than the flood accounts for.
+    private (int nr, int nc, string wallHere, string wallThere) WeightedPick(
+        List<(int nr, int nc, string wallHere, string wallThere)> options, System.Random rng)
+    {
+        foreach (var opt in options)
+        {
+            if (opt.wallHere == "N" && rng.NextDouble() < settings.upwardCarveBias)
+                return opt;
+        }
+        return options[rng.Next(options.Count)];
     }
 
     // Since the spanning tree connects every cell with exactly one route, a BFS from the entry

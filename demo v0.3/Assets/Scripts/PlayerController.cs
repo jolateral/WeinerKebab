@@ -23,10 +23,18 @@ public class PlayerController : MonoBehaviour
     private Vector2 currentVelocity;
     private Vector2 currentDirection;
     private float stunTimeRemaining = 0f;
+    private float postStunGraceRemaining = 0f;
     private float steamMultiplier = 1f;
     private Vector2 fanForceThisFrame = Vector2.zero;
 
     public bool IsStunned => stunTimeRemaining > 0f;
+
+    // True while stunned, or for a short grace window right after a stun ends - CameraFollow
+    // checks this so a wire hit can't chain directly into a flood death with no recovery window.
+    public bool IsInDeathGrace => IsStunned || postStunGraceRemaining > 0f;
+
+    public Rigidbody2D Rigidbody => rb;
+    public Vector2 CurrentVelocity => currentVelocity;
 
     private Vector2 touchStartPos;
     private bool touchActive = false;
@@ -41,7 +49,20 @@ public class PlayerController : MonoBehaviour
 
     void Update()
     {
-        if (stunTimeRemaining > 0f) stunTimeRemaining -= Time.deltaTime;
+        if (stunTimeRemaining > 0f)
+        {
+            stunTimeRemaining -= Time.deltaTime;
+            if (stunTimeRemaining <= 0f)
+            {
+                stunTimeRemaining = 0f;
+                postStunGraceRemaining = settings.postStunDeathGraceSeconds;
+            }
+        }
+        else if (postStunGraceRemaining > 0f)
+        {
+            postStunGraceRemaining -= Time.deltaTime;
+        }
+
         ReadKeyboardTurn();
         ReadSwipeTurn();
     }
@@ -122,5 +143,3 @@ public class PlayerController : MonoBehaviour
         fanForceThisFrame += direction.normalized * settings.fanForce;
     }
 }
-
-
