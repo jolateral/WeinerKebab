@@ -14,6 +14,7 @@ public class MazeCell
     public FanDirection fanDir = FanDirection.North;
 
     public bool visited = false;
+    public bool onPath = false; // true if this cell is part of the single extracted corridor
 }
 
 public enum ObstacleType { None, Steam, Wire, Fan }

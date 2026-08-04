@@ -18,10 +18,10 @@ public class GameSettings : ScriptableObject
     [Header("Fan Hazard")]
     public float fanForce = 6f;                // acceleration applied while inside a fan zone
 
-    [Header("Rising Flood (the 'camera')")]
-    public float floodRiseSpeedBase = 1.4f;    // world units/sec
-    public float floodRiseRampPerSec = 0.03f;  // extra units/sec added, per second survived
-    public float killMarginBelowCamera = 4.5f; // how far below camera view the flood sits initially
+    [Header("Camera Rise & Death")]
+    public float cameraRiseSpeedBase = 1.4f;      // world units/sec the camera's floor rises
+    public float cameraRiseRampPerSec = 0.03f;    // extra units/sec added, per second survived
+    public float offscreenDeathMargin = 0.3f;     // how far below the camera's bottom edge (world units) the player must fall before it's game over
 
     [Header("Maze")]
     public int columns = 7;

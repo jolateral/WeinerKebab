@@ -29,7 +29,7 @@ public class MazeGenerator : MonoBehaviour
     {
         lastExitCol = Columns / 2;
         // Generate a few bands immediately so the player has somewhere to stand at start.
-        GenerateBand(0, settings.rowsPerBand, lastExitCol, isFirstBand: true);
+        lastExitCol = GenerateBand(0, settings.rowsPerBand, lastExitCol, isFirstBand: true);
         for (int i = 0; i < settings.bandsAheadBuffer; i++)
         {
             lastExitCol = GenerateBand(generatedUpToRow + 1, settings.rowsPerBand, lastExitCol);
@@ -89,13 +89,6 @@ public class MazeGenerator : MonoBehaviour
         stack.Push((0, entryCol));
         band[0][entryCol].visited = true;
 
-        // Open connection down to the previous band (or leave closed if this is the very first band).
-        band[0][entryCol].wallS = false;
-        if (!isFirstBand && startRow > 0 && rows[startRow - 1] != null)
-        {
-            rows[startRow - 1][entryCol].wallN = false;
-        }
-
         System.Random rng = new System.Random();
 
         while (stack.Count > 0)
@@ -120,10 +113,105 @@ public class MazeGenerator : MonoBehaviour
         int exitCol = rng.Next(Columns);
         generatedUpToRow = startRow + numRows - 1;
 
-        PlaceObstacles(startRow, numRows, band, rng);
-        SpawnBandGeometry(startRow, numRows, band);
+        List<(int r, int c)> path = ExtractSinglePath(band, numRows, entryCol);
+        CollapseToSinglePath(band, numRows, path);
+        exitCol = path[path.Count - 1].c; // next band must enter where this one exits
+
+        PlaceObstacles(startRow, numRows, band, rng, path);
+        SpawnBandGeometry(startRow, numRows, band, path);
 
         return exitCol;
+    }
+
+    // Since the spanning tree connects every cell with exactly one route, a BFS from the entry
+    // to any cell in the top row gives the single "solution path" - this is what we keep.
+    private List<(int r, int c)> ExtractSinglePath(MazeCell[][] band, int numRows, int entryCol)
+    {
+        var visited = new bool[numRows, Columns];
+        var parent = new Dictionary<(int, int), (int, int)>();
+        var queue = new Queue<(int, int)>();
+
+        queue.Enqueue((0, entryCol));
+        visited[0, entryCol] = true;
+        (int, int) goal = (0, entryCol);
+
+        while (queue.Count > 0)
+        {
+            var (r, c) = queue.Dequeue();
+            if (r == numRows - 1) { goal = (r, c); break; }
+
+            MazeCell cell = band[r][c];
+            TryVisit(band, visited, parent, queue, r, c, !cell.wallN, r + 1, c, numRows);
+            TryVisit(band, visited, parent, queue, r, c, !cell.wallS, r - 1, c, numRows);
+            TryVisit(band, visited, parent, queue, r, c, !cell.wallE, r, c + 1, numRows);
+            TryVisit(band, visited, parent, queue, r, c, !cell.wallW, r, c - 1, numRows);
+        }
+
+        var path = new List<(int, int)>();
+        var cur = goal;
+        while (cur != (0, entryCol))
+        {
+            path.Add(cur);
+            cur = parent[cur];
+        }
+        path.Add((0, entryCol));
+        path.Reverse();
+        return path;
+    }
+
+    private void TryVisit(MazeCell[][] band, bool[,] visited, Dictionary<(int, int), (int, int)> parent,
+        Queue<(int, int)> queue, int r, int c, bool open, int nr, int nc, int numRows)
+    {
+        if (!open) return;
+        if (nr < 0 || nr >= numRows || nc < 0 || nc >= Columns) return;
+        if (visited[nr, nc]) return;
+        visited[nr, nc] = true;
+        parent[(nr, nc)] = (r, c);
+        queue.Enqueue((nr, nc));
+    }
+
+    private void CollapseToSinglePath(MazeCell[][] band, int numRows, List<(int r, int c)> path)
+    {
+        for (int r = 0; r < numRows; r++)
+        {
+            for (int c = 0; c < Columns; c++)
+            {
+                band[r][c].wallN = true;
+                band[r][c].wallS = true;
+                band[r][c].wallE = true;
+                band[r][c].wallW = true;
+                band[r][c].onPath = false;
+            }
+        }
+
+        for (int i = 0; i < path.Count; i++)
+        {
+            var (r, c) = path[i];
+            band[r][c].onPath = true;
+            if (i > 0)
+            {
+                var (pr, pc) = path[i - 1];
+                OpenBetween(band, pr, pc, r, c);
+            }
+        }
+
+        // Re-open the seam connecting down into the previous band (collapsed above like everything else).
+        var (entryR, entryC) = path[0];
+        band[entryR][entryC].wallS = false;
+
+        // Also open this band's own top exit right now, since we already know which cell/column
+        // it is - the next band will always enter directly above it in the same column. Doing this
+        // here (before geometry is spawned) avoids leaving a stray wall object sitting on the seam.
+        var (exitR, exitC) = path[path.Count - 1];
+        band[exitR][exitC].wallN = false;
+    }
+
+    private void OpenBetween(MazeCell[][] band, int r1, int c1, int r2, int c2)
+    {
+        if (r2 == r1 + 1) { band[r1][c1].wallN = false; band[r2][c2].wallS = false; }
+        else if (r2 == r1 - 1) { band[r1][c1].wallS = false; band[r2][c2].wallN = false; }
+        else if (c2 == c1 + 1) { band[r1][c1].wallE = false; band[r2][c2].wallW = false; }
+        else if (c2 == c1 - 1) { band[r1][c1].wallW = false; band[r2][c2].wallE = false; }
     }
 
     private void SetWall(MazeCell cell, string side, bool value)
@@ -142,58 +230,53 @@ public class MazeGenerator : MonoBehaviour
         while (rows.Count <= row) rows.Add(null);
     }
 
-    private void PlaceObstacles(int startRow, int numRows, MazeCell[][] band, System.Random rng)
+    private void PlaceObstacles(int startRow, int numRows, MazeCell[][] band, System.Random rng, List<(int r, int c)> path)
     {
-        for (int r = 0; r < numRows; r++)
+        // Skip the first couple of path cells so the seam into this band stays clear.
+        for (int i = 2; i < path.Count; i++)
         {
+            var (r, c) = path[i];
             if (startRow + r == 0) continue; // keep spawn row clear
-            if (r < 1) continue;             // keep the row right at the band seam clear-ish
 
-            for (int c = 0; c < Columns; c++)
+            double roll = rng.NextDouble();
+            if (roll < settings.steamChance)
             {
-                double roll = rng.NextDouble();
-                if (roll < settings.steamChance)
-                {
-                    band[r][c].obstacle = ObstacleType.Steam;
-                }
-                else if (roll < settings.steamChance + settings.wireChance)
-                {
-                    band[r][c].obstacle = ObstacleType.Wire;
-                }
-                else if (roll < settings.steamChance + settings.wireChance + settings.fanChance)
-                {
-                    band[r][c].obstacle = ObstacleType.Fan;
-                    band[r][c].fanDir = (FanDirection)rng.Next(4);
-                }
+                band[r][c].obstacle = ObstacleType.Steam;
+            }
+            else if (roll < settings.steamChance + settings.wireChance)
+            {
+                band[r][c].obstacle = ObstacleType.Wire;
+            }
+            else if (roll < settings.steamChance + settings.wireChance + settings.fanChance)
+            {
+                band[r][c].obstacle = ObstacleType.Fan;
+                band[r][c].fanDir = (FanDirection)rng.Next(4);
             }
         }
     }
 
-    private void SpawnBandGeometry(int startRow, int numRows, MazeCell[][] band)
+    private void SpawnBandGeometry(int startRow, int numRows, MazeCell[][] band, List<(int r, int c)> path)
     {
-        for (int r = 0; r < numRows; r++)
+        foreach (var (r, c) in path)
         {
             int worldRow = startRow + r;
             if (!spawnedByRow.ContainsKey(worldRow)) spawnedByRow[worldRow] = new List<GameObject>();
 
-            for (int c = 0; c < Columns; c++)
+            MazeCell cell = band[r][c];
+            Vector3 center = CellWorldCenter(worldRow, c);
+
+            if (floorTilePrefab != null)
             {
-                MazeCell cell = band[r][c];
-                Vector3 center = CellWorldCenter(worldRow, c);
-
-                if (floorTilePrefab != null)
-                {
-                    var floor = Instantiate(floorTilePrefab, center, Quaternion.identity, transform);
-                    spawnedByRow[worldRow].Add(floor);
-                }
-
-                SpawnWallIfNeeded(cell.wallN, center, new Vector3(0, CellSize * 0.5f, 0), true, worldRow);
-                SpawnWallIfNeeded(cell.wallS, center, new Vector3(0, -CellSize * 0.5f, 0), true, worldRow);
-                SpawnWallIfNeeded(cell.wallE, center, new Vector3(CellSize * 0.5f, 0, 0), false, worldRow);
-                SpawnWallIfNeeded(cell.wallW, center, new Vector3(-CellSize * 0.5f, 0, 0), false, worldRow);
-
-                SpawnObstacle(cell, center, worldRow);
+                var floor = Instantiate(floorTilePrefab, center, Quaternion.identity, transform);
+                spawnedByRow[worldRow].Add(floor);
             }
+
+            SpawnWallIfNeeded(cell.wallN, center, new Vector3(0, CellSize * 0.5f, 0), true, worldRow);
+            SpawnWallIfNeeded(cell.wallS, center, new Vector3(0, -CellSize * 0.5f, 0), true, worldRow);
+            SpawnWallIfNeeded(cell.wallE, center, new Vector3(CellSize * 0.5f, 0, 0), false, worldRow);
+            SpawnWallIfNeeded(cell.wallW, center, new Vector3(-CellSize * 0.5f, 0, 0), false, worldRow);
+
+            SpawnObstacle(cell, center, worldRow);
         }
     }
 

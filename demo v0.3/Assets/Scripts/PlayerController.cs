@@ -5,81 +5,75 @@ using UnityEngine.InputSystem;
 // CircleCollider2D (not a trigger).
 // Requires the Input System package (Window > Package Manager > Input System) -
 // this script uses it directly via Keyboard.current / Touchscreen.current, no Input Actions asset needed.
+//
+// Movement model: the player moves continuously in `currentDirection` at all times (Pac-Man style).
+// An arrow-key press or a swipe sets a new `currentDirection` - it doesn't have to be held down.
+// Since corridors are single-width, an attempted turn into a wall is simply blocked by physics
+// collision until the player is at a junction where that direction is actually open.
 [RequireComponent(typeof(Rigidbody2D))]
 public class PlayerController : MonoBehaviour
 {
     public GameSettings settings;
+    [Tooltip("Direction the player starts moving in before any input.")]
+    public Vector2 startDirection = Vector2.up;
+    [Tooltip("Minimum swipe distance in pixels before it counts as a direction change.")]
+    public float swipeThreshold = 30f;
 
     private Rigidbody2D rb;
     private Vector2 currentVelocity;
+    private Vector2 currentDirection;
     private float stunTimeRemaining = 0f;
     private float steamMultiplier = 1f;
     private Vector2 fanForceThisFrame = Vector2.zero;
 
     public bool IsStunned => stunTimeRemaining > 0f;
 
-    // Simple swipe tracking for touch input.
     private Vector2 touchStartPos;
     private bool touchActive = false;
-    private Vector2 swipeDirection = Vector2.zero;
 
     void Awake()
     {
         rb = GetComponent<Rigidbody2D>();
         rb.gravityScale = 0f;
         rb.freezeRotation = true;
+        currentDirection = startDirection.normalized;
     }
 
     void Update()
     {
         if (stunTimeRemaining > 0f) stunTimeRemaining -= Time.deltaTime;
-        HandleTouchInput();
+        ReadKeyboardTurn();
+        ReadSwipeTurn();
     }
 
     void FixedUpdate()
     {
-        Vector2 inputDir = GetInputDirection();
-
         float speed = IsStunned ? 0f : settings.playerSpeed * steamMultiplier;
-        Vector2 targetVelocity = inputDir * speed + fanForceThisFrame;
+        Vector2 targetVelocity = currentDirection * speed + fanForceThisFrame;
 
         currentVelocity = Vector2.Lerp(currentVelocity, targetVelocity, 1f - Mathf.Exp(-settings.playerAccel * Time.fixedDeltaTime));
         rb.linearVelocity = currentVelocity;
 
         // Fan force is re-applied every frame the player stays in a fan trigger (OnTriggerStay2D).
-        // Reset here so that leaving the trigger naturally removes the force next frame.
         fanForceThisFrame = Vector2.zero;
     }
 
-    private Vector2 GetInputDirection()
+    private void ReadKeyboardTurn()
     {
-        Vector2 dir = Vector2.zero;
         var kb = Keyboard.current;
-        if (kb != null)
-        {
-            if (kb.leftArrowKey.isPressed || kb.aKey.isPressed) dir.x -= 1f;
-            if (kb.rightArrowKey.isPressed || kb.dKey.isPressed) dir.x += 1f;
-            if (kb.upArrowKey.isPressed || kb.wKey.isPressed) dir.y += 1f;
-            if (kb.downArrowKey.isPressed || kb.sKey.isPressed) dir.y -= 1f;
-        }
+        if (kb == null) return;
 
-        if (dir.sqrMagnitude < 0.01f && swipeDirection.sqrMagnitude > 0.01f)
-        {
-            dir = swipeDirection;
-        }
-
-        return dir.sqrMagnitude > 1f ? dir.normalized : dir;
+        // Use "this frame" presses, not held state, so a tap is enough - the player keeps moving after.
+        if (kb.leftArrowKey.wasPressedThisFrame || kb.aKey.wasPressedThisFrame) SetDirection(Vector2.left);
+        else if (kb.rightArrowKey.wasPressedThisFrame || kb.dKey.wasPressedThisFrame) SetDirection(Vector2.right);
+        else if (kb.upArrowKey.wasPressedThisFrame || kb.wKey.wasPressedThisFrame) SetDirection(Vector2.up);
+        else if (kb.downArrowKey.wasPressedThisFrame || kb.sKey.wasPressedThisFrame) SetDirection(Vector2.down);
     }
 
-    private void HandleTouchInput()
+    private void ReadSwipeTurn()
     {
         var touchscreen = Touchscreen.current;
-        if (touchscreen == null || touchscreen.primaryTouch == null)
-        {
-            swipeDirection = Vector2.zero;
-            touchActive = false;
-            return;
-        }
+        if (touchscreen == null) return;
 
         var touch = touchscreen.primaryTouch;
         var phase = touch.phase.ReadValue();
@@ -89,21 +83,27 @@ public class PlayerController : MonoBehaviour
             touchStartPos = touch.position.ReadValue();
             touchActive = true;
         }
-        else if (touchActive && (phase == UnityEngine.InputSystem.TouchPhase.Moved || phase == UnityEngine.InputSystem.TouchPhase.Stationary))
-        {
-            Vector2 delta = touch.position.ReadValue() - touchStartPos;
-            float threshold = 20f; // pixels
-            float x = Mathf.Abs(delta.x) > threshold ? Mathf.Sign(delta.x) : 0f;
-            float y = Mathf.Abs(delta.y) > threshold ? Mathf.Sign(delta.y) : 0f;
-            // Prioritize whichever axis has the larger swipe so movement feels grid-like.
-            if (Mathf.Abs(delta.x) > Mathf.Abs(delta.y)) y = 0f; else x = 0f;
-            swipeDirection = new Vector2(x, y);
-        }
         else if (phase == UnityEngine.InputSystem.TouchPhase.Ended || phase == UnityEngine.InputSystem.TouchPhase.Canceled)
         {
+            if (touchActive)
+            {
+                Vector2 delta = touch.position.ReadValue() - touchStartPos;
+                if (delta.magnitude >= swipeThreshold)
+                {
+                    // Snap to the dominant axis so diagonal swipes still read as a clean turn.
+                    if (Mathf.Abs(delta.x) > Mathf.Abs(delta.y))
+                        SetDirection(delta.x > 0 ? Vector2.right : Vector2.left);
+                    else
+                        SetDirection(delta.y > 0 ? Vector2.up : Vector2.down);
+                }
+            }
             touchActive = false;
-            swipeDirection = Vector2.zero;
         }
+    }
+
+    private void SetDirection(Vector2 dir)
+    {
+        currentDirection = dir;
     }
 
     // --- Called by hazard trigger scripts ---
@@ -122,4 +122,5 @@ public class PlayerController : MonoBehaviour
         fanForceThisFrame += direction.normalized * settings.fanForce;
     }
 }
+
 

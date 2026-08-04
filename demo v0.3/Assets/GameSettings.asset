@@ -13,17 +13,17 @@ MonoBehaviour:
   m_Name: GameSettings
   m_EditorClassIdentifier: Assembly-CSharp::GameSettings
   playerSpeed: 3.2
-  playerAccel: 12
+  playerAccel: 15
   stunDurationSeconds: 0.5
   steamSpeedMultiplier: 0.45
   fanForce: 6
-  floodRiseSpeedBase: 1.4
-  floodRiseRampPerSec: 0.03
-  killMarginBelowCamera: 4.5
-  columns: 7
-  cellSize: 1.6
+  cameraRiseSpeedBase: 1
+  cameraRiseRampPerSec: 0.03
+  offscreenDeathMargin: 0.3
+  columns: 5
+  cellSize: 1
   rowsPerBand: 8
   bandsAheadBuffer: 3
   steamChance: 0.1
   wireChance: 0.07
-  fanChance: 0.07
+  fanChance: 0
