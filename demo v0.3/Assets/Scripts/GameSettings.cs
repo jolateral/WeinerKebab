@@ -21,13 +21,13 @@ public class GameSettings : ScriptableObject
     public float fanForce = 6f;                // acceleration applied while inside a fan zone
 
     [Header("Camera Rise & Death")]
-    public float cameraRiseSpeedBase = 1.4f;      // world units/sec the camera's floor rises
-    public float cameraRiseRampPerSec = 0.03f;    // extra units/sec added, per second survived
+    [Tooltip("Seconds at the very start of a run before the floor begins rising at all - gives the player a calm window to get oriented.")]
+    public float riseStartDelaySeconds = 1.5f;
+    public float cameraRiseSpeedBase = 0.6f;      // world units/sec the camera's floor rises, once it starts
+    public float cameraRiseRampPerSec = 0.012f;   // extra units/sec added, per second survived (gentle ramp = long-term pressure, not early panic)
     [Tooltip("Hard ceiling on rise speed so a skilled player can sustain pace indefinitely instead of the flood eventually outrunning everyone.")]
-    public float cameraRiseSpeedMax = 2.6f;
+    public float cameraRiseSpeedMax = 1.8f;
     public float offscreenDeathMargin = 0.6f;     // how far below the camera's bottom edge (world units) the player must fall before it's game over
-    [Tooltip("Extra vertical padding granted while the player is moving mostly sideways (i.e. actively navigating a turn) rather than idling.")]
-    public float turnPaddingBonus = 1.0f;
 
     [Header("Maze")]
     [Tooltip("Widened from 7 so horizontal runs have real distance to cover - narrow shafts can't support the side-to-side feel no matter how the carve bias is tuned.")]
