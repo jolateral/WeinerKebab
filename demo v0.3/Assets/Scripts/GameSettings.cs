@@ -23,11 +23,23 @@ public class GameSettings : ScriptableObject
     [Header("Camera Rise & Death")]
     [Tooltip("Seconds at the very start of a run before the floor begins rising at all - gives the player a calm window to get oriented.")]
     public float riseStartDelaySeconds = 1.5f;
-    public float cameraRiseSpeedBase = 0.6f;      // world units/sec the camera's floor rises, once it starts
-    public float cameraRiseRampPerSec = 0.012f;   // extra units/sec added, per second survived (gentle ramp = long-term pressure, not early panic)
-    [Tooltip("Hard ceiling on rise speed so a skilled player can sustain pace indefinitely instead of the flood eventually outrunning everyone.")]
-    public float cameraRiseSpeedMax = 1.8f;
+    public float cameraRiseSpeedBase = 0.45f;     // world units/sec the camera's floor rises, once it starts
+    public float cameraRiseRampPerSec = 0.01f;    // extra units/sec added, per second survived (gentle ramp = long-term pressure, not early panic)
+    [Tooltip("Hard ceiling on rise speed (before rubber-banding) so a skilled player can sustain pace indefinitely instead of the flood eventually outrunning everyone.")]
+    public float cameraRiseSpeedMax = 1.5f;
     public float offscreenDeathMargin = 0.6f;     // how far below the camera's bottom edge (world units) the player must fall before it's game over
+
+    [Header("Rubber-Banding (recovery from bad hazard luck)")]
+    [Tooltip("Because the floor never moves back down, a wire stun permanently eats into the player's buffer with no way to earn it back - this is what made runs feel 'impossible' after just one or two hits. Rubber-banding fixes that by having the rise SPEED (not position) breathe based on how close the player is to danger, so a bad hit is recoverable instead of a death sentence.")]
+    public bool enableRubberBanding = true;
+    [Tooltip("How close to the camera's bottom edge counts as 'full danger' for rubber-banding purposes, in world units.")]
+    public float rubberBandDangerRange = 3f;
+    [Tooltip("Rise speed multiplier applied when the player is in full danger (right at the bottom edge). Lower = more forgiving recovery window.")]
+    [Range(0.1f, 1f)] public float rubberBandMinMultiplier = 0.35f;
+    [Tooltip("Rise speed multiplier applied when the player has a big comfortable buffer above the bottom edge. Above 1 = pushes skilled players harder so the game doesn't get boring.")]
+    [Range(1f, 1.5f)] public float rubberBandMaxMultiplier = 1.15f;
+    [Tooltip("How quickly the rubber-band multiplier itself eases toward its target - smooths out the speed changes so they're felt as gradual pressure, not a sudden gear shift.")]
+    public float rubberBandSmoothTime = 0.8f;
 
     [Header("Maze")]
     [Tooltip("Widened from 7 so horizontal runs have real distance to cover - narrow shafts can't support the side-to-side feel no matter how the carve bias is tuned.")]

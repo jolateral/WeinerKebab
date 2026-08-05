@@ -47,6 +47,9 @@ public class CameraFollow : MonoBehaviour
     private float baseOrthoSize;
     private float zoomVelocity = 0f;
 
+    private float rubberBandMultiplier = 1f;
+    private float rubberBandVelocity = 0f;
+
     public float HeightScore => player != null ? Mathf.Max(0f, player.position.y / settings.cellSize) : 0f;
 
     void Awake()
@@ -83,9 +86,28 @@ public class CameraFollow : MonoBehaviour
         // Rise speed only starts building up after the grace period, and ramps gently from there -
         // this is what gives the player a calm opening window instead of instant pressure.
         float rampedElapsed = Mathf.Max(0f, elapsed - settings.riseStartDelaySeconds);
-        float riseSpeed = rampedElapsed > 0f
+        float baseRiseSpeed = rampedElapsed > 0f
             ? Mathf.Min(settings.cameraRiseSpeedBase + settings.cameraRiseRampPerSec * rampedElapsed, settings.cameraRiseSpeedMax)
             : 0f;
+
+        // Rubber-band the rise SPEED (never the camera's position) based on the player's current
+        // buffer above the bottom edge. This is what stops one unlucky wire hit early in a run from
+        // being an unrecoverable death sentence: lose your buffer and the flood eases off briefly so
+        // you can rebuild it; get a big comfortable lead and it leans back in so it stays a challenge.
+        if (settings.enableRubberBanding)
+        {
+            float cameraBottomEdgeNow = transform.position.y - cam.orthographicSize;
+            float bufferAboveEdge = Mathf.Max(0f, player.position.y - cameraBottomEdgeNow);
+            float safety = settings.rubberBandDangerRange > 0f ? Mathf.Clamp01(bufferAboveEdge / settings.rubberBandDangerRange) : 1f;
+            float targetMultiplier = Mathf.Lerp(settings.rubberBandMinMultiplier, settings.rubberBandMaxMultiplier, safety);
+            rubberBandMultiplier = Mathf.SmoothDamp(rubberBandMultiplier, targetMultiplier, ref rubberBandVelocity, settings.rubberBandSmoothTime);
+        }
+        else
+        {
+            rubberBandMultiplier = 1f;
+        }
+
+        float riseSpeed = baseRiseSpeed * rubberBandMultiplier;
         risingFloorY += riseSpeed * Time.deltaTime;
 
         if (mazeGenerator != null) mazeGenerator.EnsureGeneratedAhead(risingFloorY);
