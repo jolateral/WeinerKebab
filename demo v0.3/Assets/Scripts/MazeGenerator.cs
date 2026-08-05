@@ -91,6 +91,16 @@ public class MazeGenerator : MonoBehaviour
 
         System.Random rng = new System.Random();
 
+        // Track, per carved cell, which direction was traveled to reach it and how many
+        // consecutive cells in that same direction preceded it. This is what lets us enforce a
+        // minimum straight-run length before allowing another turn - since this generator carves
+        // a spanning tree (a "perfect" maze), the eventual single solution path IS this carve path,
+        // so biasing the carve directly shapes the corridors the player walks.
+        var incomingDir = new Dictionary<(int, int), string>();
+        var runLength = new Dictionary<(int, int), int>();
+        incomingDir[(0, entryCol)] = null;
+        runLength[(0, entryCol)] = 0;
+
         while (stack.Count > 0)
         {
             var (r, c) = stack.Peek();
@@ -103,10 +113,14 @@ public class MazeGenerator : MonoBehaviour
 
             if (options.Count == 0) { stack.Pop(); continue; }
 
-            var pick = WeightedPick(options, rng);
+            var pick = MomentumPick(options, rng, incomingDir[(r, c)], runLength[(r, c)]);
             SetWall(band[r][c], pick.wallHere, false);
             SetWall(band[pick.nr][pick.nc], pick.wallThere, false);
             band[pick.nr][pick.nc].visited = true;
+
+            incomingDir[(pick.nr, pick.nc)] = pick.wallHere;
+            runLength[(pick.nr, pick.nc)] = (pick.wallHere == incomingDir[(r, c)]) ? runLength[(r, c)] + 1 : 1;
+
             stack.Push((pick.nr, pick.nc));
         }
 
@@ -123,13 +137,24 @@ public class MazeGenerator : MonoBehaviour
         return exitCol;
     }
 
-    // Biases the random walk toward the upward-opening neighbor (if available) so corridors trend
-    // vertical instead of wandering sideways as much. This keeps the "true" path length closer to
-    // the straight-line height gained, which is what the rising flood actually measures - without
-    // this, a maze with lots of turns can force far more travel distance than the flood accounts for.
-    private (int nr, int nc, string wallHere, string wallThere) WeightedPick(
-        List<(int nr, int nc, string wallHere, string wallThere)> options, System.Random rng)
+    // Combines two biases when picking the next carve direction:
+    // 1. Straight-run enforcement: if we haven't yet traveled minStraightRunCells in the current
+    //    direction, force continuing that direction when it's still available. This is what turns
+    //    1-cell "staircase" zigzags into clean L-shaped bends with a straight run on each side -
+    //    since this generator carves a spanning tree and the final solution corridor IS this carve
+    //    path, biasing the carve directly shapes what the player walks through.
+    // 2. Vertical bias: when free to choose, prefer the upward-opening neighbor so corridors trend
+    //    vertical instead of wandering sideways (keeps path length closer to actual height gained).
+    private (int nr, int nc, string wallHere, string wallThere) MomentumPick(
+        List<(int nr, int nc, string wallHere, string wallThere)> options, System.Random rng,
+        string enteredDir, int runLen)
     {
+        if (enteredDir != null && runLen < settings.minStraightRunCells)
+        {
+            var continueOption = options.Find(o => o.wallHere == enteredDir);
+            if (continueOption.wallHere != null) return continueOption;
+        }
+
         foreach (var opt in options)
         {
             if (opt.wallHere == "N" && rng.NextDouble() < settings.upwardCarveBias)

@@ -39,4 +39,6 @@ public class GameSettings : ScriptableObject
     [Range(0f, 1f)] public float fanChance = 0.07f;
     [Tooltip("Probability (0-1) of picking the upward-opening neighbor when it's available during maze carving, biasing corridors to trend vertical instead of wandering sideways.")]
     [Range(0f, 1f)] public float upwardCarveBias = 0.55f;
+    [Tooltip("Minimum number of cells the carver must travel in a straight line before it's allowed to turn again. Prevents 1-cell 'staircase' zigzags at corners (which is where the continuously-moving player tends to clip a wall) and forces clean L-shaped bends instead. 2 is a good minimum; higher values produce longer straight corridors with fewer turns overall.")]
+    [Range(1, 4)] public int minStraightRunCells = 2;
 }
