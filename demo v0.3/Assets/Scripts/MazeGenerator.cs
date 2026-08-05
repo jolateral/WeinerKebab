@@ -91,6 +91,15 @@ public class MazeGenerator : MonoBehaviour
 
         System.Random rng = new System.Random();
 
+        // Roll this band's "personality" once, up front, rather than reading a fixed value from
+        // settings. This is what breaks the uniform feel - one band might commit hard to one long
+        // horizontal sweep (high bias, long min run), the next might be scrappier and twistier
+        // (lower bias, short min run), so the player can't predict what's coming a band ahead.
+        float bandHorizontalBias = (float)(settings.horizontalCarveBiasRange.x +
+            rng.NextDouble() * (settings.horizontalCarveBiasRange.y - settings.horizontalCarveBiasRange.x));
+        float bandStaircaseChance = (float)(settings.midRunStaircaseChanceRange.x +
+            rng.NextDouble() * (settings.midRunStaircaseChanceRange.y - settings.midRunStaircaseChanceRange.x));
+
         // Track, per carved cell, which direction was traveled to reach it and how many
         // consecutive cells in that same direction preceded it. This is what lets us enforce a
         // minimum straight-run length before allowing another turn - since this generator carves
@@ -98,6 +107,14 @@ public class MazeGenerator : MonoBehaviour
         // so biasing the carve directly shapes the corridors the player walks.
         var incomingDir = new Dictionary<(int, int), string>();
         var runLength = new Dictionary<(int, int), int>();
+        // Per-run (not per-band) state: each individual horizontal run gets its own randomly
+        // rolled target length, and lastHorizontalDir is carried through vertical hops so a
+        // staircased run resumes the same direction instead of picking a fresh random one.
+        var runTarget = new Dictionary<(int, int), int>();
+        var lastHorizontalDir = new Dictionary<(int, int), string>();
+        // Vertical connectors get the same per-run randomized treatment as horizontal sweeps now,
+        // instead of a single fixed length - some risers are a quick 1-cell jog, others a longer climb.
+        var verticalRunTarget = new Dictionary<(int, int), int>();
         incomingDir[(0, entryCol)] = null;
         runLength[(0, entryCol)] = 0;
 
@@ -113,13 +130,39 @@ public class MazeGenerator : MonoBehaviour
 
             if (options.Count == 0) { stack.Pop(); continue; }
 
-            var pick = MomentumPick(options, rng, incomingDir[(r, c)], runLength[(r, c)]);
+            int target = runTarget.TryGetValue((r, c), out var t) ? t : settings.minHorizontalRunCellsRange.x;
+            string lastHoriz = lastHorizontalDir.TryGetValue((r, c), out var lh) ? lh : null;
+            int vTarget = verticalRunTarget.TryGetValue((r, c), out var vt) ? vt : settings.verticalRunCellsRange.x;
+
+            var pick = MomentumPick(options, rng, incomingDir[(r, c)], runLength[(r, c)], target, vTarget, lastHoriz, bandHorizontalBias, bandStaircaseChance);
             SetWall(band[r][c], pick.wallHere, false);
             SetWall(band[pick.nr][pick.nc], pick.wallThere, false);
             band[pick.nr][pick.nc].visited = true;
 
             incomingDir[(pick.nr, pick.nc)] = pick.wallHere;
             runLength[(pick.nr, pick.nc)] = (pick.wallHere == incomingDir[(r, c)]) ? runLength[(r, c)] + 1 : 1;
+
+            if (pick.wallHere == "E" || pick.wallHere == "W")
+            {
+                lastHorizontalDir[(pick.nr, pick.nc)] = pick.wallHere;
+                // Only re-roll a fresh target when this is a genuinely new run (direction changed);
+                // continuing the same direction, or resuming after a staircase hop, keeps the
+                // target that run already committed to.
+                runTarget[(pick.nr, pick.nc)] = (pick.wallHere == incomingDir[(r, c)] && runTarget.ContainsKey((r, c)))
+                    ? runTarget[(r, c)]
+                    : rng.Next(settings.minHorizontalRunCellsRange.x, settings.minHorizontalRunCellsRange.y + 1);
+            }
+            else
+            {
+                // Vertical hop - carry the pending horizontal direction and target forward through
+                // it so the run can resume on the far side instead of losing its identity.
+                if (lastHorizontalDir.ContainsKey((r, c))) lastHorizontalDir[(pick.nr, pick.nc)] = lastHorizontalDir[(r, c)];
+                if (runTarget.ContainsKey((r, c))) runTarget[(pick.nr, pick.nc)] = runTarget[(r, c)];
+
+                verticalRunTarget[(pick.nr, pick.nc)] = (pick.wallHere == incomingDir[(r, c)] && verticalRunTarget.ContainsKey((r, c)))
+                    ? verticalRunTarget[(r, c)]
+                    : rng.Next(settings.verticalRunCellsRange.x, settings.verticalRunCellsRange.y + 1);
+            }
 
             stack.Push((pick.nr, pick.nc));
         }
@@ -137,29 +180,59 @@ public class MazeGenerator : MonoBehaviour
         return exitCol;
     }
 
-    // Combines two biases when picking the next carve direction:
-    // 1. Straight-run enforcement: if we haven't yet traveled minStraightRunCells in the current
-    //    direction, force continuing that direction when it's still available. This is what turns
-    //    1-cell "staircase" zigzags into clean L-shaped bends with a straight run on each side -
-    //    since this generator carves a spanning tree and the final solution corridor IS this carve
-    //    path, biasing the carve directly shapes what the player walks through.
-    // 2. Vertical bias: when free to choose, prefer the upward-opening neighbor so corridors trend
-    //    vertical instead of wandering sideways (keeps path length closer to actual height gained).
+    // Combines two biases when picking the next carve direction, now tuned for a horizontal
+    // "running side to side as you ascend" feel instead of a vertical one:
+    // 1. Run-length enforcement: while traveling horizontally (E/W), the carver is forced to keep
+    //    going that direction until minHorizontalRunCells is satisfied (or it hits a shaft wall) -
+    //    this is what produces one long side-to-side sweep per row-ish instead of short zigzag hops.
+    //    Vertical runs now use their own per-run randomized verticalRunCellsRange target so the
+    //    horizontal sweeps stay brief, matching the comic reference (long horizontal panels linked
+    //    by short vertical risers).
+    // 2. Horizontal bias: when free to choose and not mid-run, strongly prefer E/W over N so the
+    //    carver keeps choosing to run sideways rather than climb, only going up when it has to.
     private (int nr, int nc, string wallHere, string wallThere) MomentumPick(
         List<(int nr, int nc, string wallHere, string wallThere)> options, System.Random rng,
-        string enteredDir, int runLen)
+        string enteredDir, int runLen, int horizontalTarget, int verticalTarget, string lastHorizontalDir,
+        float horizontalBias, float staircaseChance)
     {
-        if (enteredDir != null && runLen < settings.minStraightRunCells)
+        bool enteredHorizontal = enteredDir == "E" || enteredDir == "W";
+        int minRun = enteredHorizontal ? horizontalTarget : verticalTarget;
+
+        // Force continuing the current run until ITS target is met (each run rolled its own target
+        // when it started, so this isn't the same fixed cutoff every time - the player can't learn
+        // "it always turns after N cells").
+        if (enteredDir != null && runLen < minRun)
         {
             var continueOption = options.Find(o => o.wallHere == enteredDir);
             if (continueOption.wallHere != null) return continueOption;
         }
 
-        foreach (var opt in options)
+        // Mid-run staircase: once a horizontal run has met its minimum, there's a chance to take a
+        // single-cell vertical hop and then resume the same horizontal direction on the far side -
+        // this is the "suddenly goes up in the middle and continues on another level" effect,
+        // distinct from just ending the run.
+        if (enteredHorizontal && lastHorizontalDir != null && rng.NextDouble() < staircaseChance)
         {
-            if (opt.wallHere == "N" && rng.NextDouble() < settings.upwardCarveBias)
-                return opt;
+            var upOption = options.Find(o => o.wallHere == "N");
+            if (upOption.wallHere != null) return upOption;
         }
+
+        var horizontalOptions = options.FindAll(o => o.wallHere == "E" || o.wallHere == "W");
+
+        // Resuming after a staircase hop (or just continuing normally) - strongly prefer picking
+        // back up the same horizontal direction rather than a random one, so a staircase reads as
+        // one continuous sweep with a step in it instead of a random direction flip.
+        if (lastHorizontalDir != null)
+        {
+            var resumeOption = horizontalOptions.Find(o => o.wallHere == lastHorizontalDir);
+            if (resumeOption.wallHere != null && rng.NextDouble() < 0.85) return resumeOption;
+        }
+
+        if (horizontalOptions.Count > 0 && rng.NextDouble() < horizontalBias)
+        {
+            return horizontalOptions[rng.Next(horizontalOptions.Count)];
+        }
+
         return options[rng.Next(options.Count)];
     }
 

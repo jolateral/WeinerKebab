@@ -30,15 +30,20 @@ public class GameSettings : ScriptableObject
     public float turnPaddingBonus = 1.0f;
 
     [Header("Maze")]
-    public int columns = 7;
+    [Tooltip("Widened from 7 so horizontal runs have real distance to cover - narrow shafts can't support the side-to-side feel no matter how the carve bias is tuned.")]
+    public int columns = 9;
     public float cellSize = 1.6f;
     public int rowsPerBand = 6;
     public int bandsAheadBuffer = 3;           // how many bands to keep generated above the flood
     [Range(0f, 1f)] public float steamChance = 0.10f;
     [Range(0f, 1f)] public float wireChance = 0.07f;
     [Range(0f, 1f)] public float fanChance = 0.07f;
-    [Tooltip("Probability (0-1) of picking the upward-opening neighbor when it's available during maze carving, biasing corridors to trend vertical instead of wandering sideways.")]
-    [Range(0f, 1f)] public float upwardCarveBias = 0.55f;
-    [Tooltip("Minimum number of cells the carver must travel in a straight line before it's allowed to turn again. Prevents 1-cell 'staircase' zigzags at corners (which is where the continuously-moving player tends to clip a wall) and forces clean L-shaped bends instead. 2 is a good minimum; higher values produce longer straight corridors with fewer turns overall.")]
-    [Range(1, 4)] public int minStraightRunCells = 2;
+    [Tooltip("Range each band's horizontal carve bias is randomly picked from. Wide range = more variety between bands (some very sideways-heavy, some tighter/twistier); narrow range = more consistent feel.")]
+    public Vector2 horizontalCarveBiasRange = new Vector2(0.55f, 0.95f);
+    [Tooltip("Range a horizontal run's target length is randomly picked from EACH TIME a new run starts (not once per band) - this is what makes the 'turn up' moment unpredictable instead of happening at the same spot every sweep.")]
+    public Vector2Int minHorizontalRunCellsRange = new Vector2Int(2, 8);
+    [Tooltip("Range a vertical connector's length is randomly picked from each time one starts (replaces a fixed length) - some risers between horizontal sweeps will be a quick 1-cell jog, others a longer multi-cell climb, instead of every connector looking the same.")]
+    public Vector2Int verticalRunCellsRange = new Vector2Int(1, 4);
+    [Tooltip("Range each BAND's mid-run staircase chance is randomly picked from - this is what varies the overall texture between bands. A band that rolls low reads as clean/uniform sweeps; a band that rolls high is staircase-heavy and chaotic. Widen for more contrast between bands.")]
+    public Vector2 midRunStaircaseChanceRange = new Vector2(0.05f, 0.5f);
 }
