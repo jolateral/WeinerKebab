@@ -10,6 +10,13 @@ using UnityEngine;
 // (no discontinuous jumps), because it's just a smoothly increasing number, never something that
 // switches source (player vs floor) frame to frame.
 //
+// FRAMING: the camera's orthographic size is fixed - computed once from the base maze width,
+// pulled back by cameraZoomOutMultiplier to match the wider, more zoomed-out comic panel
+// reference (rather than a tight exact-fit). It deliberately does NOT change size as you climb,
+// even if MazeGenerator's wide-reveal-band feature is re-enabled later - constant zoom swings
+// were reported as disorienting, so framing now only ever changes via the small, slow "danger"
+// tension zoom below (which can also be turned off via enableSubtleZoom).
+//
 // Death happens the moment the player falls fully outside the camera's view (off the bottom edge).
 public class CameraFollow : MonoBehaviour
 {
@@ -44,7 +51,8 @@ public class CameraFollow : MonoBehaviour
     private float elapsed = 0f;
     private bool gameOver = false;
 
-    private float baseOrthoSize;
+    private float aspect;
+    private float baseOrthoSize;   // fixed width-driven size (before the danger-tension bump), computed once in Awake
     private float zoomVelocity = 0f;
 
     private float rubberBandMultiplier = 1f;
@@ -57,13 +65,16 @@ public class CameraFollow : MonoBehaviour
         cam = GetComponent<Camera>();
         cam.orthographic = true;
 
-        float mazeWidth = settings.columns * settings.cellSize;
-        centerX = mazeWidth * 0.5f;
+        centerX = mazeGenerator != null ? mazeGenerator.BandCenterX : settings.columns * settings.cellSize * 0.5f;
 
-        // Fit the maze width exactly into the current screen's aspect ratio (e.g. 390x844 portrait).
-        float aspect = (float)Screen.width / Screen.height;
-        cam.orthographicSize = (mazeWidth + horizontalPadding) / (2f * aspect);
-        baseOrthoSize = cam.orthographicSize;
+        aspect = (float)Screen.width / Screen.height;
+
+        // Fit the base maze width into the current screen's aspect ratio, then pull back further
+        // by cameraZoomOutMultiplier so the frame matches the wider comic-panel reference instead
+        // of a tight exact fit.
+        float baseWidth = settings.columns * settings.cellSize + horizontalPadding;
+        baseOrthoSize = SizeForWidth(baseWidth) * settings.cameraZoomOutMultiplier;
+        cam.orthographicSize = baseOrthoSize;
 
         // Start the floor well below the player so they begin comfortably inside the frame
         // (roughly centered, not pinned to the bottom edge) instead of feeling pressured immediately.
@@ -75,6 +86,11 @@ public class CameraFollow : MonoBehaviour
         {
             playerController = player.GetComponent<PlayerController>();
         }
+    }
+
+    private float SizeForWidth(float worldWidth)
+    {
+        return worldWidth / (2f * aspect);
     }
 
     void LateUpdate()
@@ -122,14 +138,22 @@ public class CameraFollow : MonoBehaviour
 
         if (enableSubtleZoom)
         {
-            // Tension is now about the PLAYER's danger (how close to the bottom edge they are),
-            // not about the camera catching up to anything - the camera never needs to "catch up".
+            // Tension is about the PLAYER's danger (how close to the bottom edge they are), not
+            // about the camera catching up to anything. This is the ONLY thing that still moves
+            // the zoom level at all, and it's small (zoomTensionFraction, default 8%) and slow
+            // (zoomSmoothTime) by design - set enableSubtleZoom to false for a completely static
+            // zoom level if even this is too much.
             float distanceFromEdge = Mathf.Max(0f, player.position.y - cameraBottomEdge);
             float tension = zoomTensionRange > 0f ? 1f - Mathf.Clamp01(distanceFromEdge / zoomTensionRange) : 0f;
             float targetOrthoSize = baseOrthoSize * (1f + zoomTensionFraction * tension);
             float currentSize = cam.orthographicSize;
             cam.orthographicSize = Mathf.SmoothDamp(currentSize, targetOrthoSize, ref zoomVelocity, zoomSmoothTime);
             // Recompute bottom edge since orthographicSize may have just changed.
+            cameraBottomEdge = transform.position.y - cam.orthographicSize;
+        }
+        else
+        {
+            cam.orthographicSize = baseOrthoSize;
             cameraBottomEdge = transform.position.y - cam.orthographicSize;
         }
 

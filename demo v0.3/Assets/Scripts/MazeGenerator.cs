@@ -113,7 +113,11 @@ public class MazeGenerator : MonoBehaviour
         int bandColumns = settings.columns;
         bool isWideBand = false;
         bandsSinceWide++;
-        if (!isFirstBand && bandsSinceWide > settings.minBandsBetweenWideBands && rng.NextDouble() < settings.wideBandChance)
+        // enableWideRevealBands is the hard gate here - even if wideBandChance still has a stale
+        // value saved on an old GameSettings asset, this guarantees bandColumns can never differ
+        // between bands, which is what keeps every band fitting the screen and connecting cleanly
+        // to the one below it.
+        if (settings.enableWideRevealBands && !isFirstBand && bandsSinceWide > settings.minBandsBetweenWideBands && rng.NextDouble() < settings.wideBandChance)
         {
             bandColumns = Mathf.Max(settings.columns, Mathf.RoundToInt(settings.columns * settings.wideBandColumnMultiplier));
             isWideBand = true;
@@ -356,22 +360,28 @@ public class MazeGenerator : MonoBehaviour
             // This keeps the corridor-with-turns look intact everywhere else.
             if (rng.NextDouble() < settings.hazardBypassChance)
             {
-                TryCarveBypass(band, numRows, bandColumns, path[i - 1], path[i], path[i + 1], spawnCells);
+                TryCarveBypass(band, numRows, bandColumns, path, i, spawnCells, rng);
             }
         }
     }
 
-    // Carves a minimal alternate route from A to C that avoids B, using only cells that are still
-    // completely untouched (all four walls intact - guaranteed not to be part of the main corridor
-    // or a previous bypass). Returns true if a bypass was actually carved.
+    // Carves a minimal alternate route around B (path[i]) that avoids it, using only cells that
+    // are still completely untouched (all four walls intact - guaranteed not to be part of the
+    // main corridor or a previous bypass). Returns true if a bypass was actually carved.
     //
-    // - If the path runs straight through B (same direction in and out), the detour is a small
-    //   3-cell "step" one row/column to the side of B - a little bubble the player can duck into.
-    // - If the path turns at B (a corner), the detour is a single-cell "corner cut" through the
+    // - If the path runs straight through B (same direction in and out), the detour is a lane one
+    //   row/column to the side of B, covering B plus - randomly, per bypass - a few extra cells of
+    //   genuinely straight corridor on either side (settings.bypassDetourExtensionRange). This is
+    //   what lets some dodges read as a short 3-cell bubble and others as a longer sweeping branch,
+    //   without ever distorting a turn, since it only extends along confirmed-straight stretches.
+    // - If the path turns at B (a corner), the detour stays a single-cell "corner cut" through the
     //   cell diagonal to B - a tiny fork right at the turn.
     private bool TryCarveBypass(MazeCell[][] band, int numRows, int bandColumns,
-        (int r, int c) A, (int r, int c) B, (int r, int c) C, HashSet<(int, int)> spawnCells)
+        List<(int r, int c)> path, int i, HashSet<(int, int)> spawnCells, System.Random rng)
     {
+        var A = path[i - 1];
+        var B = path[i];
+        var C = path[i + 1];
         int inR = B.r - A.r, inC = B.c - A.c;
         int outR = C.r - B.r, outC = C.c - B.c;
 
@@ -385,24 +395,56 @@ public class MazeGenerator : MonoBehaviour
 
         if (inR == outR && inC == outC)
         {
-            // Straight through B - detour one row/column to the side (try both sides).
+            // Straight through B. Before offsetting, see how much further the corridor keeps
+            // going in this exact same direction on each side - that's the most this detour is
+            // ever allowed to extend, so it can never eat into a turn.
+            int maxBack = 0;
+            while (i - 2 - maxBack >= 0)
+            {
+                var p0 = path[i - 2 - maxBack];
+                var p1 = path[i - 1 - maxBack];
+                if (p1.r - p0.r == inR && p1.c - p0.c == inC) maxBack++; else break;
+            }
+            int maxFwd = 0;
+            while (i + 2 + maxFwd < path.Count)
+            {
+                var p0 = path[i + 1 + maxFwd];
+                var p1 = path[i + 2 + maxFwd];
+                if (p1.r - p0.r == outR && p1.c - p0.c == outC) maxFwd++; else break;
+            }
+
+            int extLo = Mathf.Max(0, settings.bypassDetourExtensionRange.x);
+            int extHi = Mathf.Max(extLo, settings.bypassDetourExtensionRange.y);
+            int extraBack = Mathf.Min(maxBack, rng.Next(extLo, extHi + 1));
+            int extraFwd = Mathf.Min(maxFwd, rng.Next(extLo, extHi + 1));
+
+            int startIdx = i - 1 - extraBack;
+            int endIdx = i + 1 + extraFwd;
+
             int perpR = inC != 0 ? 1 : 0; // if moving horizontally, offset vertically, and vice versa
             int perpC = inR != 0 ? 1 : 0;
 
             foreach (int sign in new[] { 1, -1 })
             {
-                var s1 = (A.r + perpR * sign, A.c + perpC * sign);
-                var s2 = (B.r + perpR * sign, B.c + perpC * sign);
-                var s3 = (C.r + perpR * sign, C.c + perpC * sign);
-                if (IsFree(s1) && IsFree(s2) && IsFree(s3))
+                var lane = new List<(int r, int c)>();
+                bool ok = true;
+                for (int k = startIdx; k <= endIdx; k++)
                 {
-                    OpenBetween(band, A.r, A.c, s1.Item1, s1.Item2);
-                    OpenBetween(band, s1.Item1, s1.Item2, s2.Item1, s2.Item2);
-                    OpenBetween(band, s2.Item1, s2.Item2, s3.Item1, s3.Item2);
-                    OpenBetween(band, s3.Item1, s3.Item2, C.r, C.c);
-                    spawnCells.Add(s1); spawnCells.Add(s2); spawnCells.Add(s3);
-                    return true;
+                    var p = path[k];
+                    var off = (p.r + perpR * sign, p.c + perpC * sign);
+                    if (!IsFree(off)) { ok = false; break; }
+                    lane.Add(off);
                 }
+                if (!ok) continue;
+
+                var start = path[startIdx];
+                var end = path[endIdx];
+                OpenBetween(band, start.r, start.c, lane[0].r, lane[0].c);
+                for (int k = 0; k < lane.Count - 1; k++)
+                    OpenBetween(band, lane[k].r, lane[k].c, lane[k + 1].r, lane[k + 1].c);
+                OpenBetween(band, lane[lane.Count - 1].r, lane[lane.Count - 1].c, end.r, end.c);
+                foreach (var cell in lane) spawnCells.Add(cell);
+                return true;
             }
             return false;
         }

@@ -68,10 +68,14 @@ public class GameSettings : ScriptableObject
     [Header("Hazard Bypasses (lets the player route around SOME obstacles)")]
     [Tooltip("The maze stays a single corridor everywhere, same as before. This is the chance, PER HAZARD PLACED, that a small local detour loop gets carved just around that one hazard - a little 'step around' bubble the player can duck into instead of walking through it. Lower = mostly forced hits like before with occasional dodges; higher = most hazards are avoidable. 0 = old behavior (always forced through).")]
     [Range(0f, 1f)] public float hazardBypassChance = 0.45f;
+    [Tooltip("Extra cells the bypass loop can stretch on EACH side of the hazard, beyond the base 3-cell bubble, when the corridor is straight enough nearby to support it. A value is picked per-bypass in this (min, max) range, clamped to however much straight corridor is actually available near that hazard. (0,0) = always the original fixed-length bubble. Try (0,3) for a mix of short dodges and longer sweeping branches.")]
+    public Vector2Int bypassDetourExtensionRange = new Vector2Int(0, 3);
 
     [Header("Wide Reveal Bands (comic-panel wide shots)")]
-    [Tooltip("Chance, each time a new band is generated, that it becomes a 'wide' band - a much wider stretch of maze the camera pulls back to show almost in full, similar to the comic reference panel.")]
-    [Range(0f, 1f)] public float wideBandChance = 0.18f;
+    [Tooltip("Master switch for the wide-band feature. Leave OFF (default) - this is what guarantees every band is exactly the same width as every other, so bands always fit the screen and always connect cleanly to the one below. Only turn on if you specifically want occasional wider comic-panel reveals again, and understand band-to-band connections get less precise when widths vary. This switch overrides wideBandChance below even if that field has a stale value saved on your asset.")]
+    public bool enableWideRevealBands = false;
+    [Tooltip("Chance, each time a new band is generated, that it becomes a 'wide' band - a much wider stretch of maze the camera pulls back to show almost in full, similar to the comic reference panel. Has NO effect while enableWideRevealBands (above) is off.")]
+    [Range(0f, 1f)] public float wideBandChance = 0f;
     [Tooltip("How much wider a wide band's column count is versus the normal maze width (multiplier on 'columns').")]
     public float wideBandColumnMultiplier = 2.2f;
     [Tooltip("Minimum number of normal bands required between two wide bands, so wide reveals stay special/rare instead of clustering together.")]
