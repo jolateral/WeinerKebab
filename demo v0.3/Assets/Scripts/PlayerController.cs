@@ -19,6 +19,9 @@ public class PlayerController : MonoBehaviour
     [Tooltip("Minimum swipe distance in pixels before it counts as a direction change.")]
     public float swipeThreshold = 30f;
 
+    [Tooltip("Sprite to mirror left/right as the player turns. Leave empty to auto-find on this GameObject or its children.")]
+    public SpriteRenderer spriteRenderer;
+
     private Rigidbody2D rb;
     private Vector2 currentVelocity;
     private Vector2 currentDirection;
@@ -45,6 +48,9 @@ public class PlayerController : MonoBehaviour
         rb.gravityScale = 0f;
         rb.freezeRotation = true;
         currentDirection = startDirection.normalized;
+
+        if (spriteRenderer == null) spriteRenderer = GetComponentInChildren<SpriteRenderer>();
+        ApplyFacingFromDirection(currentDirection);
     }
 
     void Update()
@@ -125,6 +131,17 @@ public class PlayerController : MonoBehaviour
     private void SetDirection(Vector2 dir)
     {
         currentDirection = dir;
+        ApplyFacingFromDirection(dir);
+    }
+
+    // Mirrors the sprite left/right on horizontal turns. Left/right in this Pac-Man-style movement
+    // is the only case that needs a flip - up/down keeps whatever horizontal facing was last set,
+    // since there's nothing to mirror on a purely vertical turn.
+    private void ApplyFacingFromDirection(Vector2 dir)
+    {
+        if (spriteRenderer == null) return;
+        if (dir.x > 0f) spriteRenderer.flipX = false;
+        else if (dir.x < 0f) spriteRenderer.flipX = true;
     }
 
     // --- Called by hazard trigger scripts ---
