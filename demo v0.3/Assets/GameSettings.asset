@@ -17,7 +17,7 @@ MonoBehaviour:
   stunDurationSeconds: 0.5
   postStunDeathGraceSeconds: 0.75
   steamSpeedMultiplier: 0.6
-  fanForce: 6
+  fanForce: 2.75
   riseStartDelaySeconds: 1.5
   cameraRiseSpeedBase: 1
   cameraRiseRampPerSec: 0.03
@@ -36,12 +36,14 @@ MonoBehaviour:
   bandsAheadBuffer: 3
   steamChance: 0.057
   wireChance: 0.07
-  fanChance: 0
+  fanChance: 0.05
   horizontalCarveBiasRange: {x: 0.55, y: 0.95}
   minHorizontalRunCellsRange: {x: 2, y: 6}
   verticalRunCellsRange: {x: 1, y: 4}
   midRunStaircaseChanceRange: {x: 0.05, y: 0.5}
   hazardBypassChance: 1
+  bypassDetourExtensionRange: {x: 0, y: 3}
+  enableWideRevealBands: 0
   wideBandChance: 0.18
   wideBandColumnMultiplier: 2.2
   minBandsBetweenWideBands: 3
