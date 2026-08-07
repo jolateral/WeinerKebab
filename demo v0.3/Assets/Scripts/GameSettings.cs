@@ -29,17 +29,23 @@ public class GameSettings : ScriptableObject
     public float cameraRiseSpeedMax = 1.5f;
     public float offscreenDeathMargin = 0.6f;     // how far below the camera's bottom edge (world units) the player must fall before it's game over
 
+    [Header("Camera Zoom / Framing")]
+    [Tooltip("Multiplies the camera's exact fit-to-maze-width size so the frame sits pulled back further than a tight fit, matching the wider/more zoomed-out comic panel framing. 1 = exact fit (old behavior). Try 1.6-2.0 to match the comic reference.")]
+    public float cameraZoomOutMultiplier = 1.8f;
+    [Tooltip("How quickly the camera's width-driven zoom eases toward its target as the maze ahead gets narrower/wider (e.g. approaching or leaving a wide reveal band). Bigger = lazier/slower zoom changes.")]
+    public float cameraWidthSmoothTime = 0.5f;
+
     [Header("Rubber-Banding (recovery from bad hazard luck)")]
     [Tooltip("Because the floor never moves back down, a wire stun permanently eats into the player's buffer with no way to earn it back - this is what made runs feel 'impossible' after just one or two hits. Rubber-banding fixes that by having the rise SPEED (not position) breathe based on how close the player is to danger, so a bad hit is recoverable instead of a death sentence.")]
     public bool enableRubberBanding = true;
     [Tooltip("How close to the camera's bottom edge counts as 'full danger' for rubber-banding purposes, in world units.")]
-    public float rubberBandDangerRange = 3f;
+    public float rubberBandDangerRange = 5f;
     [Tooltip("Rise speed multiplier applied when the player is in full danger (right at the bottom edge). Lower = more forgiving recovery window.")]
     [Range(0.1f, 1f)] public float rubberBandMinMultiplier = 0.35f;
     [Tooltip("Rise speed multiplier applied when the player has a big comfortable buffer above the bottom edge. Above 1 = pushes skilled players harder so the game doesn't get boring.")]
     [Range(1f, 1.5f)] public float rubberBandMaxMultiplier = 1.15f;
     [Tooltip("How quickly the rubber-band multiplier itself eases toward its target - smooths out the speed changes so they're felt as gradual pressure, not a sudden gear shift.")]
-    public float rubberBandSmoothTime = 0.8f;
+    public float rubberBandSmoothTime = 0.35f;
 
     [Header("Maze")]
     [Tooltip("Widened from 7 so horizontal runs have real distance to cover - narrow shafts can't support the side-to-side feel no matter how the carve bias is tuned.")]
@@ -58,4 +64,16 @@ public class GameSettings : ScriptableObject
     public Vector2Int verticalRunCellsRange = new Vector2Int(1, 4);
     [Tooltip("Range each BAND's mid-run staircase chance is randomly picked from - this is what varies the overall texture between bands. A band that rolls low reads as clean/uniform sweeps; a band that rolls high is staircase-heavy and chaotic. Widen for more contrast between bands.")]
     public Vector2 midRunStaircaseChanceRange = new Vector2(0.05f, 0.5f);
+
+    [Header("Hazard Bypasses (lets the player route around SOME obstacles)")]
+    [Tooltip("The maze stays a single corridor everywhere, same as before. This is the chance, PER HAZARD PLACED, that a small local detour loop gets carved just around that one hazard - a little 'step around' bubble the player can duck into instead of walking through it. Lower = mostly forced hits like before with occasional dodges; higher = most hazards are avoidable. 0 = old behavior (always forced through).")]
+    [Range(0f, 1f)] public float hazardBypassChance = 0.45f;
+
+    [Header("Wide Reveal Bands (comic-panel wide shots)")]
+    [Tooltip("Chance, each time a new band is generated, that it becomes a 'wide' band - a much wider stretch of maze the camera pulls back to show almost in full, similar to the comic reference panel.")]
+    [Range(0f, 1f)] public float wideBandChance = 0.18f;
+    [Tooltip("How much wider a wide band's column count is versus the normal maze width (multiplier on 'columns').")]
+    public float wideBandColumnMultiplier = 2.2f;
+    [Tooltip("Minimum number of normal bands required between two wide bands, so wide reveals stay special/rare instead of clustering together.")]
+    public int minBandsBetweenWideBands = 3;
 }

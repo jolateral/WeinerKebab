@@ -15,24 +15,35 @@ public class MazeGenerator : MonoBehaviour
     public GameObject floorTilePrefab;   // optional, purely visual
 
     // rows[r][c] = cell data. Row 0 is the starting row at the bottom.
+    // NOTE: each row's array length can differ band-to-band (wide reveal bands are wider), so
+    // always go through CellWorldCenter / rowLayout rather than assuming a fixed column count.
     private List<MazeCell[]> rows = new List<MazeCell[]>();
     private int generatedUpToRow = -1;
-    private int lastExitCol;
+    private float lastExitWorldX;
+    private int bandsSinceWide = 999; // large so the very first eligible band CAN roll wide
+
+    // Per-row layout so world positions and hit-testing work even though band width varies.
+    private struct BandLayout { public int columns; public float xOffset; }
+    private Dictionary<int, BandLayout> rowLayout = new Dictionary<int, BandLayout>();
 
     // Track spawned GameObjects per row so we can clean up rows far below the flood.
     private Dictionary<int, List<GameObject>> spawnedByRow = new Dictionary<int, List<GameObject>>();
 
     public float CellSize => settings.cellSize;
-    public int Columns => settings.columns;
+    public int Columns => settings.columns; // base/default column count (wide bands are wider - see BandWidthAtWorldY)
+
+    // The camera should always frame around this fixed X - every band (normal or wide) is
+    // centered on it, wide bands just extend further left/right from the same center.
+    public float BandCenterX => settings.columns * settings.cellSize * 0.5f;
 
     void Awake()
     {
-        lastExitCol = Columns / 2;
+        lastExitWorldX = BandCenterX; // first band always starts centered
         // Generate a few bands immediately so the player has somewhere to stand at start.
-        lastExitCol = GenerateBand(0, settings.rowsPerBand, lastExitCol, isFirstBand: true);
+        lastExitWorldX = GenerateBand(0, settings.rowsPerBand, lastExitWorldX, isFirstBand: true);
         for (int i = 0; i < settings.bandsAheadBuffer; i++)
         {
-            lastExitCol = GenerateBand(generatedUpToRow + 1, settings.rowsPerBand, lastExitCol);
+            lastExitWorldX = GenerateBand(generatedUpToRow + 1, settings.rowsPerBand, lastExitWorldX);
         }
     }
 
@@ -43,7 +54,7 @@ public class MazeGenerator : MonoBehaviour
         int neededRow = floodRow + settings.rowsPerBand * settings.bandsAheadBuffer;
         while (generatedUpToRow < neededRow)
         {
-            lastExitCol = GenerateBand(generatedUpToRow + 1, settings.rowsPerBand, lastExitCol);
+            lastExitWorldX = GenerateBand(generatedUpToRow + 1, settings.rowsPerBand, lastExitWorldX);
         }
 
         // Cleanup: destroy spawned objects for rows well below the flood to keep the scene light.
@@ -57,39 +68,75 @@ public class MazeGenerator : MonoBehaviour
                 toRemove.Add(kvp.Key);
             }
         }
-        foreach (var k in toRemove) spawnedByRow.Remove(k);
+        foreach (var k in toRemove) { spawnedByRow.Remove(k); rowLayout.Remove(k); }
     }
 
     public Vector3 CellWorldCenter(int row, int col)
     {
-        return new Vector3(col * CellSize + CellSize * 0.5f, row * CellSize + CellSize * 0.5f, 0f);
+        float x = col * CellSize + CellSize * 0.5f;
+        if (rowLayout.TryGetValue(row, out var layout))
+        {
+            x = layout.xOffset + col * CellSize + CellSize * 0.5f;
+        }
+        return new Vector3(x, row * CellSize + CellSize * 0.5f, 0f);
     }
 
     public MazeCell CellAt(int row, int col)
     {
         if (row < 0 || row >= rows.Count) return null;
-        if (col < 0 || col >= Columns) return null;
-        return rows[row][col];
+        var rowArr = rows[row];
+        if (rowArr == null) return null;
+        if (col < 0 || col >= rowArr.Length) return null;
+        return rowArr[col];
     }
 
-    // Recursive backtracker over a band of rows, entering from entryCol on the band's bottom edge.
-    private int GenerateBand(int startRow, int numRows, int entryCol, bool isFirstBand = false)
+    // World-unit width of the maze band that occupies the given world Y - lets the camera know
+    // how far to zoom out to fit whatever's currently (or about to be) on screen, since wide
+    // reveal bands are wider than normal ones.
+    public float BandWidthAtWorldY(float worldY)
     {
+        int row = Mathf.FloorToInt(worldY / CellSize);
+        if (rowLayout.TryGetValue(row, out var layout)) return layout.columns * CellSize;
+        return settings.columns * CellSize;
+    }
+
+    // Recursive backtracker over a band of rows, entering from a world-space X position on the
+    // band's bottom edge (world X rather than a column index, since a wide reveal band's column
+    // coordinate space differs from a normal band's).
+    private float GenerateBand(int startRow, int numRows, float entryWorldX, bool isFirstBand = false)
+    {
+        System.Random rng = new System.Random();
+
+        // Decide this band's width. Wide "reveal" bands are much wider and let the camera pull
+        // back to show almost the whole layout at once, per the comic reference. Never on the
+        // very first band, and gated by a cooldown so they stay a rare/special beat.
+        int bandColumns = settings.columns;
+        bool isWideBand = false;
+        bandsSinceWide++;
+        if (!isFirstBand && bandsSinceWide > settings.minBandsBetweenWideBands && rng.NextDouble() < settings.wideBandChance)
+        {
+            bandColumns = Mathf.Max(settings.columns, Mathf.RoundToInt(settings.columns * settings.wideBandColumnMultiplier));
+            isWideBand = true;
+            bandsSinceWide = 0;
+        }
+
+        float xOffset = BandCenterX - bandColumns * settings.cellSize * 0.5f;
+        int entryCol = Mathf.Clamp(Mathf.RoundToInt((entryWorldX - xOffset) / settings.cellSize - 0.5f), 0, bandColumns - 1);
+
         EnsureRowCapacity(startRow + numRows - 1);
 
         MazeCell[][] band = new MazeCell[numRows][];
         for (int r = 0; r < numRows; r++)
         {
-            band[r] = new MazeCell[Columns];
-            for (int c = 0; c < Columns; c++) band[r][c] = new MazeCell();
+            band[r] = new MazeCell[bandColumns];
+            for (int c = 0; c < bandColumns; c++) band[r][c] = new MazeCell();
             rows[startRow + r] = band[r];
+            rowLayout[startRow + r] = new BandLayout { columns = bandColumns, xOffset = xOffset };
         }
 
         var stack = new Stack<(int r, int c)>();
         stack.Push((0, entryCol));
         band[0][entryCol].visited = true;
-
-        System.Random rng = new System.Random();
 
         // Roll this band's "personality" once, up front, rather than reading a fixed value from
         // settings. This is what breaks the uniform feel - one band might commit hard to one long
@@ -97,23 +144,14 @@ public class MazeGenerator : MonoBehaviour
         // (lower bias, short min run), so the player can't predict what's coming a band ahead.
         float bandHorizontalBias = (float)(settings.horizontalCarveBiasRange.x +
             rng.NextDouble() * (settings.horizontalCarveBiasRange.y - settings.horizontalCarveBiasRange.x));
+        if (isWideBand) bandHorizontalBias = Mathf.Clamp01(bandHorizontalBias + 0.1f);
         float bandStaircaseChance = (float)(settings.midRunStaircaseChanceRange.x +
             rng.NextDouble() * (settings.midRunStaircaseChanceRange.y - settings.midRunStaircaseChanceRange.x));
 
-        // Track, per carved cell, which direction was traveled to reach it and how many
-        // consecutive cells in that same direction preceded it. This is what lets us enforce a
-        // minimum straight-run length before allowing another turn - since this generator carves
-        // a spanning tree (a "perfect" maze), the eventual single solution path IS this carve path,
-        // so biasing the carve directly shapes the corridors the player walks.
         var incomingDir = new Dictionary<(int, int), string>();
         var runLength = new Dictionary<(int, int), int>();
-        // Per-run (not per-band) state: each individual horizontal run gets its own randomly
-        // rolled target length, and lastHorizontalDir is carried through vertical hops so a
-        // staircased run resumes the same direction instead of picking a fresh random one.
         var runTarget = new Dictionary<(int, int), int>();
         var lastHorizontalDir = new Dictionary<(int, int), string>();
-        // Vertical connectors get the same per-run randomized treatment as horizontal sweeps now,
-        // instead of a single fixed length - some risers are a quick 1-cell jog, others a longer climb.
         var verticalRunTarget = new Dictionary<(int, int), int>();
         incomingDir[(0, entryCol)] = null;
         runLength[(0, entryCol)] = 0;
@@ -125,7 +163,7 @@ public class MazeGenerator : MonoBehaviour
 
             if (r + 1 < numRows && !band[r + 1][c].visited) options.Add((r + 1, c, "N", "S"));
             if (r - 1 >= 0 && !band[r - 1][c].visited) options.Add((r - 1, c, "S", "N"));
-            if (c + 1 < Columns && !band[r][c + 1].visited) options.Add((r, c + 1, "E", "W"));
+            if (c + 1 < bandColumns && !band[r][c + 1].visited) options.Add((r, c + 1, "E", "W"));
             if (c - 1 >= 0 && !band[r][c - 1].visited) options.Add((r, c - 1, "W", "E"));
 
             if (options.Count == 0) { stack.Pop(); continue; }
@@ -145,17 +183,12 @@ public class MazeGenerator : MonoBehaviour
             if (pick.wallHere == "E" || pick.wallHere == "W")
             {
                 lastHorizontalDir[(pick.nr, pick.nc)] = pick.wallHere;
-                // Only re-roll a fresh target when this is a genuinely new run (direction changed);
-                // continuing the same direction, or resuming after a staircase hop, keeps the
-                // target that run already committed to.
                 runTarget[(pick.nr, pick.nc)] = (pick.wallHere == incomingDir[(r, c)] && runTarget.ContainsKey((r, c)))
                     ? runTarget[(r, c)]
                     : rng.Next(settings.minHorizontalRunCellsRange.x, settings.minHorizontalRunCellsRange.y + 1);
             }
             else
             {
-                // Vertical hop - carry the pending horizontal direction and target forward through
-                // it so the run can resume on the far side instead of losing its identity.
                 if (lastHorizontalDir.ContainsKey((r, c))) lastHorizontalDir[(pick.nr, pick.nc)] = lastHorizontalDir[(r, c)];
                 if (runTarget.ContainsKey((r, c))) runTarget[(pick.nr, pick.nc)] = runTarget[(r, c)];
 
@@ -167,80 +200,32 @@ public class MazeGenerator : MonoBehaviour
             stack.Push((pick.nr, pick.nc));
         }
 
-        int exitCol = rng.Next(Columns);
+        int exitCol = rng.Next(bandColumns);
         generatedUpToRow = startRow + numRows - 1;
 
-        List<(int r, int c)> path = ExtractSinglePath(band, numRows, entryCol);
-        CollapseToSinglePath(band, numRows, path);
-        exitCol = path[path.Count - 1].c; // next band must enter where this one exits
+        List<(int r, int c)> path = ExtractSinglePath(band, numRows, bandColumns, entryCol);
+        CollapseToSinglePath(band, numRows, bandColumns, path);
+        exitCol = path[path.Count - 1].c;
 
-        PlaceObstacles(startRow, numRows, band, rng, path);
-        SpawnBandGeometry(startRow, numRows, band, path);
+        // spawnCells starts as just the single corridor - this is what keeps the maze reading
+        // exactly like it used to. PlaceObstacles below adds a handful of small "step around"
+        // detour cells to this set, one per bypassed hazard, so the vast majority of the layout
+        // is still one clean path with only the occasional local loop around an obstacle.
+        var spawnCells = new HashSet<(int, int)>(path);
 
-        return exitCol;
+        PlaceObstacles(startRow, numRows, band, bandColumns, rng, path, spawnCells);
+        SpawnBandGeometry(startRow, spawnCells, band, xOffset);
+
+        float exitWorldX = xOffset + exitCol * settings.cellSize + settings.cellSize * 0.5f;
+        return exitWorldX;
     }
 
-    // Combines two biases when picking the next carve direction, now tuned for a horizontal
-    // "running side to side as you ascend" feel instead of a vertical one:
-    // 1. Run-length enforcement: while traveling horizontally (E/W), the carver is forced to keep
-    //    going that direction until minHorizontalRunCells is satisfied (or it hits a shaft wall) -
-    //    this is what produces one long side-to-side sweep per row-ish instead of short zigzag hops.
-    //    Vertical runs now use their own per-run randomized verticalRunCellsRange target so the
-    //    horizontal sweeps stay brief, matching the comic reference (long horizontal panels linked
-    //    by short vertical risers).
-    // 2. Horizontal bias: when free to choose and not mid-run, strongly prefer E/W over N so the
-    //    carver keeps choosing to run sideways rather than climb, only going up when it has to.
-    private (int nr, int nc, string wallHere, string wallThere) MomentumPick(
-        List<(int nr, int nc, string wallHere, string wallThere)> options, System.Random rng,
-        string enteredDir, int runLen, int horizontalTarget, int verticalTarget, string lastHorizontalDir,
-        float horizontalBias, float staircaseChance)
+    // Same BFS-over-the-spanning-tree extraction as the original generator: since the carve above
+    // produces a perfect maze (exactly one route between any two cells), this finds THE route from
+    // the entry to the top of the band.
+    private List<(int r, int c)> ExtractSinglePath(MazeCell[][] band, int numRows, int bandColumns, int entryCol)
     {
-        bool enteredHorizontal = enteredDir == "E" || enteredDir == "W";
-        int minRun = enteredHorizontal ? horizontalTarget : verticalTarget;
-
-        // Force continuing the current run until ITS target is met (each run rolled its own target
-        // when it started, so this isn't the same fixed cutoff every time - the player can't learn
-        // "it always turns after N cells").
-        if (enteredDir != null && runLen < minRun)
-        {
-            var continueOption = options.Find(o => o.wallHere == enteredDir);
-            if (continueOption.wallHere != null) return continueOption;
-        }
-
-        // Mid-run staircase: once a horizontal run has met its minimum, there's a chance to take a
-        // single-cell vertical hop and then resume the same horizontal direction on the far side -
-        // this is the "suddenly goes up in the middle and continues on another level" effect,
-        // distinct from just ending the run.
-        if (enteredHorizontal && lastHorizontalDir != null && rng.NextDouble() < staircaseChance)
-        {
-            var upOption = options.Find(o => o.wallHere == "N");
-            if (upOption.wallHere != null) return upOption;
-        }
-
-        var horizontalOptions = options.FindAll(o => o.wallHere == "E" || o.wallHere == "W");
-
-        // Resuming after a staircase hop (or just continuing normally) - strongly prefer picking
-        // back up the same horizontal direction rather than a random one, so a staircase reads as
-        // one continuous sweep with a step in it instead of a random direction flip.
-        if (lastHorizontalDir != null)
-        {
-            var resumeOption = horizontalOptions.Find(o => o.wallHere == lastHorizontalDir);
-            if (resumeOption.wallHere != null && rng.NextDouble() < 0.85) return resumeOption;
-        }
-
-        if (horizontalOptions.Count > 0 && rng.NextDouble() < horizontalBias)
-        {
-            return horizontalOptions[rng.Next(horizontalOptions.Count)];
-        }
-
-        return options[rng.Next(options.Count)];
-    }
-
-    // Since the spanning tree connects every cell with exactly one route, a BFS from the entry
-    // to any cell in the top row gives the single "solution path" - this is what we keep.
-    private List<(int r, int c)> ExtractSinglePath(MazeCell[][] band, int numRows, int entryCol)
-    {
-        var visited = new bool[numRows, Columns];
+        var visited = new bool[numRows, bandColumns];
         var parent = new Dictionary<(int, int), (int, int)>();
         var queue = new Queue<(int, int)>();
 
@@ -254,10 +239,10 @@ public class MazeGenerator : MonoBehaviour
             if (r == numRows - 1) { goal = (r, c); break; }
 
             MazeCell cell = band[r][c];
-            TryVisit(band, visited, parent, queue, r, c, !cell.wallN, r + 1, c, numRows);
-            TryVisit(band, visited, parent, queue, r, c, !cell.wallS, r - 1, c, numRows);
-            TryVisit(band, visited, parent, queue, r, c, !cell.wallE, r, c + 1, numRows);
-            TryVisit(band, visited, parent, queue, r, c, !cell.wallW, r, c - 1, numRows);
+            TryVisit(visited, parent, queue, r, c, !cell.wallN, r + 1, c, numRows, bandColumns);
+            TryVisit(visited, parent, queue, r, c, !cell.wallS, r - 1, c, numRows, bandColumns);
+            TryVisit(visited, parent, queue, r, c, !cell.wallE, r, c + 1, numRows, bandColumns);
+            TryVisit(visited, parent, queue, r, c, !cell.wallW, r, c - 1, numRows, bandColumns);
         }
 
         var path = new List<(int, int)>();
@@ -272,22 +257,22 @@ public class MazeGenerator : MonoBehaviour
         return path;
     }
 
-    private void TryVisit(MazeCell[][] band, bool[,] visited, Dictionary<(int, int), (int, int)> parent,
-        Queue<(int, int)> queue, int r, int c, bool open, int nr, int nc, int numRows)
+    private void TryVisit(bool[,] visited, Dictionary<(int, int), (int, int)> parent,
+        Queue<(int, int)> queue, int r, int c, bool open, int nr, int nc, int numRows, int bandColumns)
     {
         if (!open) return;
-        if (nr < 0 || nr >= numRows || nc < 0 || nc >= Columns) return;
+        if (nr < 0 || nr >= numRows || nc < 0 || nc >= bandColumns) return;
         if (visited[nr, nc]) return;
         visited[nr, nc] = true;
         parent[(nr, nc)] = (r, c);
         queue.Enqueue((nr, nc));
     }
 
-    private void CollapseToSinglePath(MazeCell[][] band, int numRows, List<(int r, int c)> path)
+    private void CollapseToSinglePath(MazeCell[][] band, int numRows, int bandColumns, List<(int r, int c)> path)
     {
         for (int r = 0; r < numRows; r++)
         {
-            for (int c = 0; c < Columns; c++)
+            for (int c = 0; c < bandColumns; c++)
             {
                 band[r][c].wallN = true;
                 band[r][c].wallS = true;
@@ -308,13 +293,9 @@ public class MazeGenerator : MonoBehaviour
             }
         }
 
-        // Re-open the seam connecting down into the previous band (collapsed above like everything else).
         var (entryR, entryC) = path[0];
         band[entryR][entryC].wallS = false;
 
-        // Also open this band's own top exit right now, since we already know which cell/column
-        // it is - the next band will always enter directly above it in the same column. Doing this
-        // here (before geometry is spawned) avoids leaving a stray wall object sitting on the seam.
         var (exitR, exitC) = path[path.Count - 1];
         band[exitR][exitC].wallN = false;
     }
@@ -343,40 +324,112 @@ public class MazeGenerator : MonoBehaviour
         while (rows.Count <= row) rows.Add(null);
     }
 
-    private void PlaceObstacles(int startRow, int numRows, MazeCell[][] band, System.Random rng, List<(int r, int c)> path)
+    private void PlaceObstacles(int startRow, int numRows, MazeCell[][] band, int bandColumns, System.Random rng,
+        List<(int r, int c)> path, HashSet<(int, int)> spawnCells)
     {
-        // Skip the first couple of path cells so the seam into this band stays clear.
-        for (int i = 2; i < path.Count; i++)
+        // Skip the first couple of path cells so the seam into this band stays clear, and the
+        // very last cell (the seam into the next band).
+        for (int i = 2; i < path.Count - 1; i++)
         {
             var (r, c) = path[i];
             if (startRow + r == 0) continue; // keep spawn row clear
 
             double roll = rng.NextDouble();
-            if (roll < settings.steamChance)
-            {
-                band[r][c].obstacle = ObstacleType.Steam;
-            }
-            else if (roll < settings.steamChance + settings.wireChance)
-            {
-                band[r][c].obstacle = ObstacleType.Wire;
-            }
+            ObstacleType obstacle = ObstacleType.None;
+            FanDirection fanDir = FanDirection.North;
+
+            if (roll < settings.steamChance) obstacle = ObstacleType.Steam;
+            else if (roll < settings.steamChance + settings.wireChance) obstacle = ObstacleType.Wire;
             else if (roll < settings.steamChance + settings.wireChance + settings.fanChance)
             {
-                band[r][c].obstacle = ObstacleType.Fan;
-                band[r][c].fanDir = (FanDirection)rng.Next(4);
+                obstacle = ObstacleType.Fan;
+                fanDir = (FanDirection)rng.Next(4);
+            }
+
+            if (obstacle == ObstacleType.None) continue;
+
+            band[r][c].obstacle = obstacle;
+            if (obstacle == ObstacleType.Fan) band[r][c].fanDir = fanDir;
+
+            // Every once in a while, carve a small local "step around" loop that lets the player
+            // dodge THIS specific hazard, instead of turning the whole maze into a branching one.
+            // This keeps the corridor-with-turns look intact everywhere else.
+            if (rng.NextDouble() < settings.hazardBypassChance)
+            {
+                TryCarveBypass(band, numRows, bandColumns, path[i - 1], path[i], path[i + 1], spawnCells);
             }
         }
     }
 
-    private void SpawnBandGeometry(int startRow, int numRows, MazeCell[][] band, List<(int r, int c)> path)
+    // Carves a minimal alternate route from A to C that avoids B, using only cells that are still
+    // completely untouched (all four walls intact - guaranteed not to be part of the main corridor
+    // or a previous bypass). Returns true if a bypass was actually carved.
+    //
+    // - If the path runs straight through B (same direction in and out), the detour is a small
+    //   3-cell "step" one row/column to the side of B - a little bubble the player can duck into.
+    // - If the path turns at B (a corner), the detour is a single-cell "corner cut" through the
+    //   cell diagonal to B - a tiny fork right at the turn.
+    private bool TryCarveBypass(MazeCell[][] band, int numRows, int bandColumns,
+        (int r, int c) A, (int r, int c) B, (int r, int c) C, HashSet<(int, int)> spawnCells)
     {
-        foreach (var (r, c) in path)
+        int inR = B.r - A.r, inC = B.c - A.c;
+        int outR = C.r - B.r, outC = C.c - B.c;
+
+        bool IsFree((int r, int c) cell)
+        {
+            if (cell.r < 0 || cell.r >= numRows || cell.c < 0 || cell.c >= bandColumns) return false;
+            if (spawnCells.Contains(cell)) return false;
+            var mc = band[cell.r][cell.c];
+            return mc.wallN && mc.wallS && mc.wallE && mc.wallW;
+        }
+
+        if (inR == outR && inC == outC)
+        {
+            // Straight through B - detour one row/column to the side (try both sides).
+            int perpR = inC != 0 ? 1 : 0; // if moving horizontally, offset vertically, and vice versa
+            int perpC = inR != 0 ? 1 : 0;
+
+            foreach (int sign in new[] { 1, -1 })
+            {
+                var s1 = (A.r + perpR * sign, A.c + perpC * sign);
+                var s2 = (B.r + perpR * sign, B.c + perpC * sign);
+                var s3 = (C.r + perpR * sign, C.c + perpC * sign);
+                if (IsFree(s1) && IsFree(s2) && IsFree(s3))
+                {
+                    OpenBetween(band, A.r, A.c, s1.Item1, s1.Item2);
+                    OpenBetween(band, s1.Item1, s1.Item2, s2.Item1, s2.Item2);
+                    OpenBetween(band, s2.Item1, s2.Item2, s3.Item1, s3.Item2);
+                    OpenBetween(band, s3.Item1, s3.Item2, C.r, C.c);
+                    spawnCells.Add(s1); spawnCells.Add(s2); spawnCells.Add(s3);
+                    return true;
+                }
+            }
+            return false;
+        }
+        else
+        {
+            // Turn at B - corner cut through the cell diagonal from B.
+            var d = (A.r + outR, A.c + outC);
+            if (d != B && IsFree(d))
+            {
+                OpenBetween(band, A.r, A.c, d.Item1, d.Item2);
+                OpenBetween(band, d.Item1, d.Item2, C.r, C.c);
+                spawnCells.Add(d);
+                return true;
+            }
+            return false;
+        }
+    }
+
+    private void SpawnBandGeometry(int startRow, HashSet<(int, int)> spawnCells, MazeCell[][] band, float xOffset)
+    {
+        foreach (var (r, c) in spawnCells)
         {
             int worldRow = startRow + r;
             if (!spawnedByRow.ContainsKey(worldRow)) spawnedByRow[worldRow] = new List<GameObject>();
 
             MazeCell cell = band[r][c];
-            Vector3 center = CellWorldCenter(worldRow, c);
+            Vector3 center = new Vector3(xOffset + c * CellSize + CellSize * 0.5f, worldRow * CellSize + CellSize * 0.5f, 0f);
 
             if (floorTilePrefab != null)
             {
@@ -399,7 +452,6 @@ public class MazeGenerator : MonoBehaviour
         Vector3 pos = cellCenter + localOffset;
         Quaternion rot = horizontal ? Quaternion.identity : Quaternion.Euler(0, 0, 90);
         var go = Instantiate(wallSegmentPrefab, pos, rot, transform);
-        // Scale the wall's length to the cell size (assumes prefab is authored at 1 unit length on X).
         go.transform.localScale = new Vector3(CellSize, go.transform.localScale.y, go.transform.localScale.z);
         spawnedByRow[worldRow].Add(go);
     }
@@ -422,5 +474,41 @@ public class MazeGenerator : MonoBehaviour
             if (fan != null) fan.SetDirection(cell.fanDir);
         }
         spawnedByRow[worldRow].Add(go);
+    }
+
+    private (int nr, int nc, string wallHere, string wallThere) MomentumPick(
+        List<(int nr, int nc, string wallHere, string wallThere)> options, System.Random rng,
+        string enteredDir, int runLen, int horizontalTarget, int verticalTarget, string lastHorizontalDir,
+        float horizontalBias, float staircaseChance)
+    {
+        bool enteredHorizontal = enteredDir == "E" || enteredDir == "W";
+        int minRun = enteredHorizontal ? horizontalTarget : verticalTarget;
+
+        if (enteredDir != null && runLen < minRun)
+        {
+            var continueOption = options.Find(o => o.wallHere == enteredDir);
+            if (continueOption.wallHere != null) return continueOption;
+        }
+
+        if (enteredHorizontal && lastHorizontalDir != null && rng.NextDouble() < staircaseChance)
+        {
+            var upOption = options.Find(o => o.wallHere == "N");
+            if (upOption.wallHere != null) return upOption;
+        }
+
+        var horizontalOptions = options.FindAll(o => o.wallHere == "E" || o.wallHere == "W");
+
+        if (lastHorizontalDir != null)
+        {
+            var resumeOption = horizontalOptions.Find(o => o.wallHere == lastHorizontalDir);
+            if (resumeOption.wallHere != null && rng.NextDouble() < 0.85) return resumeOption;
+        }
+
+        if (horizontalOptions.Count > 0 && rng.NextDouble() < horizontalBias)
+        {
+            return horizontalOptions[rng.Next(horizontalOptions.Count)];
+        }
+
+        return options[rng.Next(options.Count)];
     }
 }

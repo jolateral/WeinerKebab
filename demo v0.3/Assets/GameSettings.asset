@@ -12,18 +12,36 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1149361030821478886e7151d4a5b99b, type: 3}
   m_Name: GameSettings
   m_EditorClassIdentifier: Assembly-CSharp::GameSettings
-  playerSpeed: 3.2
+  playerSpeed: 4
   playerAccel: 15
   stunDurationSeconds: 0.5
-  steamSpeedMultiplier: 0.45
+  postStunDeathGraceSeconds: 0.75
+  steamSpeedMultiplier: 0.6
   fanForce: 6
+  riseStartDelaySeconds: 1.5
   cameraRiseSpeedBase: 1
   cameraRiseRampPerSec: 0.03
+  cameraRiseSpeedMax: 2.6
   offscreenDeathMargin: 0.3
+  cameraZoomOutMultiplier: 1.8
+  cameraWidthSmoothTime: 0.5
+  enableRubberBanding: 1
+  rubberBandDangerRange: 3
+  rubberBandMinMultiplier: 0.25
+  rubberBandMaxMultiplier: 1.15
+  rubberBandSmoothTime: 0.8
   columns: 5
   cellSize: 1
   rowsPerBand: 8
   bandsAheadBuffer: 3
-  steamChance: 0.1
+  steamChance: 0.057
   wireChance: 0.07
   fanChance: 0
+  horizontalCarveBiasRange: {x: 0.55, y: 0.95}
+  minHorizontalRunCellsRange: {x: 2, y: 6}
+  verticalRunCellsRange: {x: 1, y: 4}
+  midRunStaircaseChanceRange: {x: 0.05, y: 0.5}
+  hazardBypassChance: 1
+  wideBandChance: 0.18
+  wideBandColumnMultiplier: 2.2
+  minBandsBetweenWideBands: 3
