@@ -18,6 +18,7 @@ MonoBehaviour:
   postStunDeathGraceSeconds: 0.75
   steamSpeedMultiplier: 0.6
   fanForce: 2.75
+  fanTunnelLengthCellsRange: {x: 1, y: 3}
   riseStartDelaySeconds: 1.5
   cameraRiseSpeedBase: 1
   cameraRiseRampPerSec: 0.03
@@ -26,7 +27,7 @@ MonoBehaviour:
   cameraZoomOutMultiplier: 1.8
   cameraWidthSmoothTime: 0.5
   enableRubberBanding: 1
-  rubberBandDangerRange: 3
+  rubberBandDangerRange: 5
   rubberBandMinMultiplier: 0.25
   rubberBandMaxMultiplier: 1.15
   rubberBandSmoothTime: 0.8

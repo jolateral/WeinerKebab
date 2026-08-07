@@ -341,19 +341,25 @@ public class MazeGenerator : MonoBehaviour
             double roll = rng.NextDouble();
             ObstacleType obstacle = ObstacleType.None;
             FanDirection fanDir = FanDirection.North;
+            int fanSpan = 1;
 
             if (roll < settings.steamChance) obstacle = ObstacleType.Steam;
             else if (roll < settings.steamChance + settings.wireChance) obstacle = ObstacleType.Wire;
             else if (roll < settings.steamChance + settings.wireChance + settings.fanChance)
             {
                 obstacle = ObstacleType.Fan;
-                fanDir = (FanDirection)rng.Next(4);
+                fanDir = PickFanDirection(path, i, rng);
+                fanSpan = PickFanSpan(path, i, fanDir, rng);
             }
 
             if (obstacle == ObstacleType.None) continue;
 
             band[r][c].obstacle = obstacle;
-            if (obstacle == ObstacleType.Fan) band[r][c].fanDir = fanDir;
+            if (obstacle == ObstacleType.Fan)
+            {
+                band[r][c].fanDir = fanDir;
+                band[r][c].fanSpanCells = fanSpan;
+            }
 
             // Every once in a while, carve a small local "step around" loop that lets the player
             // dodge THIS specific hazard, instead of turning the whole maze into a branching one.
@@ -363,6 +369,66 @@ public class MazeGenerator : MonoBehaviour
                 TryCarveBypass(band, numRows, bandColumns, path, i, spawnCells, rng);
             }
         }
+    }
+
+    // A fan blowing along the vent's own axis makes physical sense (mounted at the end of a
+    // straight shaft, blowing up or down it) - unlike blowing "into" a solid side wall. So fans
+    // pick a direction along whichever axis the player is actually traveling through this cell,
+    // randomly either WITH the player (a helpful boost) or AGAINST them (resistance to fight
+    // through). It's safe for a fan to oppose the player head-on because fanForce is kept below
+    // playerSpeed in GameSettings - the player's net forward speed in the worst case is
+    // (playerSpeed - fanForce), which is always positive, so an opposing fan slows you down hard
+    // but can never fully pin you in place.
+    // Walks outward from path index i along a fixed direction (dirR, dirC) on each side, counting
+    // how many consecutive cells the corridor keeps going dead straight before it turns or runs
+    // out of path. Shared by the bypass-detour carving and the fan wind-tunnel sizing, since both
+    // need to know "how much straight corridor is safely available here" before extending anything.
+    private (int maxBack, int maxFwd) ComputeStraightRun(List<(int r, int c)> path, int i, int dirR, int dirC)
+    {
+        int maxBack = 0;
+        while (i - 2 - maxBack >= 0)
+        {
+            var p0 = path[i - 2 - maxBack];
+            var p1 = path[i - 1 - maxBack];
+            if (p1.r - p0.r == dirR && p1.c - p0.c == dirC) maxBack++; else break;
+        }
+        int maxFwd = 0;
+        while (i + 2 + maxFwd < path.Count)
+        {
+            var p0 = path[i + 1 + maxFwd];
+            var p1 = path[i + 2 + maxFwd];
+            if (p1.r - p0.r == dirR && p1.c - p0.c == dirC) maxFwd++; else break;
+        }
+        return (maxBack, maxFwd);
+    }
+
+    private FanDirection PickFanDirection(List<(int r, int c)> path, int i, System.Random rng)
+    {
+        var B = path[i];
+        var C = path[i + 1];
+        int outR = C.r - B.r, outC = C.c - B.c;
+
+        bool travelingHorizontally = outC != 0;
+        FanDirection optionA = travelingHorizontally ? FanDirection.East : FanDirection.North;
+        FanDirection optionB = travelingHorizontally ? FanDirection.West : FanDirection.South;
+        return rng.NextDouble() < 0.5 ? optionA : optionB;
+    }
+
+    // Picks how many cells long this fan's wind tunnel stretches, along the SAME axis it blows on
+    // (so the tunnel and the push direction always agree), clamped to however much straight
+    // corridor is actually available around it. A span of 1 = the original single-cell fan.
+    private int PickFanSpan(List<(int r, int c)> path, int i, FanDirection dir, System.Random rng)
+    {
+        bool axisIsHorizontal = dir == FanDirection.East || dir == FanDirection.West;
+        int dirR = axisIsHorizontal ? 0 : 1;
+        int dirC = axisIsHorizontal ? 1 : 0;
+        var (maxBack, maxFwd) = ComputeStraightRun(path, i, dirR, dirC);
+        int maxAvailable = 1 + maxBack + maxFwd; // total straight cells the tunnel could span
+
+        int lo = Mathf.Max(1, settings.fanTunnelLengthCellsRange.x);
+        int hi = Mathf.Max(lo, settings.fanTunnelLengthCellsRange.y);
+        int desired = rng.Next(lo, hi + 1);
+        return Mathf.Min(desired, maxAvailable);
     }
 
     // Carves a minimal alternate route around B (path[i]) that avoids it, using only cells that
@@ -398,20 +464,7 @@ public class MazeGenerator : MonoBehaviour
             // Straight through B. Before offsetting, see how much further the corridor keeps
             // going in this exact same direction on each side - that's the most this detour is
             // ever allowed to extend, so it can never eat into a turn.
-            int maxBack = 0;
-            while (i - 2 - maxBack >= 0)
-            {
-                var p0 = path[i - 2 - maxBack];
-                var p1 = path[i - 1 - maxBack];
-                if (p1.r - p0.r == inR && p1.c - p0.c == inC) maxBack++; else break;
-            }
-            int maxFwd = 0;
-            while (i + 2 + maxFwd < path.Count)
-            {
-                var p0 = path[i + 1 + maxFwd];
-                var p1 = path[i + 2 + maxFwd];
-                if (p1.r - p0.r == outR && p1.c - p0.c == outC) maxFwd++; else break;
-            }
+            var (maxBack, maxFwd) = ComputeStraightRun(path, i, inR, inC);
 
             int extLo = Mathf.Max(0, settings.bypassDetourExtensionRange.x);
             int extHi = Mathf.Max(extLo, settings.bypassDetourExtensionRange.y);
@@ -513,7 +566,11 @@ public class MazeGenerator : MonoBehaviour
         if (cell.obstacle == ObstacleType.Fan)
         {
             var fan = go.GetComponent<FanZone>();
-            if (fan != null) fan.SetDirection(cell.fanDir);
+            if (fan != null)
+            {
+                fan.SetDirection(cell.fanDir);
+                fan.SetSpan(cell.fanSpanCells, CellSize);
+            }
         }
         spawnedByRow[worldRow].Add(go);
     }

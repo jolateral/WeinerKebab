@@ -26,6 +26,26 @@ public class FanZone : MonoBehaviour
         }
     }
 
+    // Stretches this fan's trigger collider along the corridor so it acts like wind blowing down
+    // a hallway instead of a single-cell push. Requires a BoxCollider2D on this prefab. Called by
+    // MazeGenerator right after instantiation, using however many straight cells it confirmed are
+    // safe to span (see fanSpanCells on the source MazeCell / fanTunnelLengthCellsRange in
+    // GameSettings). Grows the collider symmetrically from the fan's own center, since the fan
+    // sits in the middle cell of the tunnel it's extending into on both sides.
+    public void SetSpan(int spanCells, float cellSize)
+    {
+        var col = GetComponent<BoxCollider2D>();
+        if (col == null || spanCells <= 1) return;
+
+        float lengthWorldUnits = spanCells * cellSize;
+        bool axisIsHorizontal = direction == FanDirection.East || direction == FanDirection.West;
+
+        Vector2 size = col.size;
+        if (axisIsHorizontal) size.x = lengthWorldUnits;
+        else size.y = lengthWorldUnits;
+        col.size = size;
+    }
+
     private Vector2 DirectionVector()
     {
         return direction switch

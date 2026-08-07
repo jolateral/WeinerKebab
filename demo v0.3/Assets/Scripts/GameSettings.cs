@@ -18,7 +18,10 @@ public class GameSettings : ScriptableObject
     [Range(0.1f, 1f)] public float steamSpeedMultiplier = 0.45f; // % of normal speed while inside steam
 
     [Header("Fan Hazard")]
-    public float fanForce = 6f;                // acceleration applied while inside a fan zone
+    [Tooltip("Acceleration applied while inside a fan zone. Fans now only ever blow along the vent's own axis (helping or hindering, picked randomly) rather than sideways into a wall - keep this BELOW playerSpeed so an opposing fan slows the player hard but can never fully cancel their forward speed and trap them. (playerSpeed - fanForce) is the player's worst-case net speed while fighting a fan head-on; keep that comfortably positive.")]
+    public float fanForce = 2.2f;
+    [Tooltip("How many consecutive cells long a fan's wind tunnel stretches along the corridor, picked randomly per fan within this (min, max) range and clamped to however much straight corridor is actually available on either side. (1,1) = the old single-cell-only behavior. Try (1,3) for the occasional longer 'blowing down the hallway' stretch.")]
+    public Vector2Int fanTunnelLengthCellsRange = new Vector2Int(1, 3);
 
     [Header("Camera Rise & Death")]
     [Tooltip("Seconds at the very start of a run before the floor begins rising at all - gives the player a calm window to get oriented.")]
