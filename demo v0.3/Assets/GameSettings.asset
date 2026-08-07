@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: GameSettings
   m_EditorClassIdentifier: Assembly-CSharp::GameSettings
   playerSpeed: 4
-  playerAccel: 40
+  playerAccel: 50
   stunDurationSeconds: 0.5
   postStunDeathGraceSeconds: 0.75
   steamSpeedMultiplier: 0.6
