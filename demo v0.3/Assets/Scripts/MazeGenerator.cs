@@ -14,6 +14,9 @@ public class MazeGenerator : MonoBehaviour
     public GameObject fanPrefab;         // trigger volume with FanZone.cs
     public GameObject floorTilePrefab;   // optional, purely visual
 
+    [Tooltip("Decorative room prefabs placed off to the side of the vent for visual interest (see GameSettings > Background Rooms for frequency/spacing). Purely visual - no collider needed, since these always spawn outside the maze's own columns where the player can never go. Assign 4-6 variants for variety; one is picked at random each time.")]
+    public GameObject[] roomPrefabs;
+
     // rows[r][c] = cell data. Row 0 is the starting row at the bottom.
     // NOTE: each row's array length can differ band-to-band (wide reveal bands are wider), so
     // always go through CellWorldCenter / rowLayout rather than assuming a fixed column count.
@@ -21,6 +24,7 @@ public class MazeGenerator : MonoBehaviour
     private int generatedUpToRow = -1;
     private float lastExitWorldX;
     private int bandsSinceWide = 999; // large so the very first eligible band CAN roll wide
+    private int bandsSinceRoom = 999; // large so the very first eligible band CAN roll a room
 
     // Per-row layout so world positions and hit-testing work even though band width varies.
     private struct BandLayout { public int columns; public float xOffset; }
@@ -219,6 +223,7 @@ public class MazeGenerator : MonoBehaviour
 
         PlaceObstacles(startRow, numRows, band, bandColumns, rng, path, spawnCells);
         SpawnBandGeometry(startRow, spawnCells, band, xOffset);
+        TrySpawnBackgroundRoom(startRow, numRows, xOffset, spawnCells, rng);
 
         float exitWorldX = xOffset + exitCol * settings.cellSize + settings.cellSize * 0.5f;
         return exitWorldX;
@@ -572,6 +577,71 @@ public class MazeGenerator : MonoBehaviour
                 fan.SetSpan(cell.fanSpanCells, CellSize);
             }
         }
+        spawnedByRow[worldRow].Add(go);
+    }
+
+    // Places a decorative room prefab in the black dead-space just outside the maze's own
+    // columns, to the left or right at random. This space is already visible because the camera
+    // is pulled back wider than the maze (cameraZoomOutMultiplier), so the room simply fills in
+    // what would otherwise be empty black background - it never overlaps the corridor or any
+    // wall/obstacle geometry, and has no collider, so the player can never touch it and the vent
+    // effectively "goes around" it automatically.
+    private void TrySpawnBackgroundRoom(int startRow, int numRows, float xOffset, HashSet<(int, int)> spawnCells, System.Random rng)
+    {
+        bandsSinceRoom++;
+        if (roomPrefabs == null || roomPrefabs.Length == 0) return;
+        if (bandsSinceRoom <= settings.minBandsBetweenRooms) return;
+        if (rng.NextDouble() >= settings.roomSpawnChance) return;
+
+        // Pick a random row within this band, then find the actual corridor cell(s) on that row -
+        // NOT the outer edge of the whole band, which is often mostly dead space since the
+        // corridor is a single winding path and rarely spans the full band width on any given
+        // row. Anchoring to the band edge is what caused rooms to float far from the vent.
+        int localRow = rng.Next(0, numRows);
+        int minCol = int.MaxValue, maxCol = int.MinValue;
+        foreach (var cell in spawnCells)
+        {
+            if (cell.Item1 != localRow) continue;
+            if (cell.Item2 < minCol) minCol = cell.Item2;
+            if (cell.Item2 > maxCol) maxCol = cell.Item2;
+        }
+        if (maxCol < minCol) return; // no corridor cell on this row - skip this band's room roll
+
+        bandsSinceRoom = 0;
+
+        int worldRow = startRow + localRow;
+        float y = worldRow * CellSize + CellSize * 0.5f;
+
+        bool onRight = rng.NextDouble() < 0.5;
+        // Use the real wall edge of the actual rightmost/leftmost corridor cell on this row.
+        float mazeEdgeX = onRight ? xOffset + (maxCol + 1) * CellSize : xOffset + minCol * CellSize;
+
+        // Spawn first at a placeholder X so we can measure the prefab's actual rendered width
+        // (different room images will be different sizes/aspect ratios) and butt its NEAR edge -
+        // not its center pivot - up against the wall plus the configured gap. Positioning by
+        // center pivot alone was the bug: a room wider than roomSideOffset would dip back behind
+        // the wall column instead of sitting cleanly beside it.
+        var prefab = roomPrefabs[rng.Next(roomPrefabs.Length)];
+        var go = Instantiate(prefab, new Vector3(mazeEdgeX, y, 0f), Quaternion.identity, transform);
+
+        // Mirror the sprite when placed on the left so asymmetric room art (e.g. a fireplace
+        // rendered opening toward the right) still faces back in toward the vent on both sides.
+        Vector3 scale = go.transform.localScale;
+        scale.x = Mathf.Abs(scale.x) * (onRight ? 1f : -1f);
+        go.transform.localScale = scale;
+
+        float halfWidth = 0f;
+        var renderer = go.GetComponentInChildren<SpriteRenderer>();
+        if (renderer != null) halfWidth = renderer.bounds.extents.x;
+
+        float roomX = onRight
+            ? mazeEdgeX + settings.roomSideOffset + halfWidth
+            : mazeEdgeX - settings.roomSideOffset - halfWidth;
+        go.transform.position = new Vector3(roomX, y, 0f);
+
+        // Piggyback on the same per-row cleanup as walls/obstacles, so old rooms get destroyed
+        // once the flood has risen well past them.
+        if (!spawnedByRow.ContainsKey(worldRow)) spawnedByRow[worldRow] = new List<GameObject>();
         spawnedByRow[worldRow].Add(go);
     }
 

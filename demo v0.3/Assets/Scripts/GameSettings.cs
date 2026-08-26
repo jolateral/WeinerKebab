@@ -83,4 +83,12 @@ public class GameSettings : ScriptableObject
     public float wideBandColumnMultiplier = 2.2f;
     [Tooltip("Minimum number of normal bands required between two wide bands, so wide reveals stay special/rare instead of clustering together.")]
     public int minBandsBetweenWideBands = 3;
+
+    [Header("Background Rooms (visual flavor in the dead space beside the vent)")]
+    [Tooltip("Chance, each time a new band is generated, that a decorative room image gets placed off to one side of the maze. Purely visual - it sits outside the maze's own columns, in the space the pulled-back camera already reveals, so the player can never reach or touch it.")]
+    [Range(0f, 1f)] public float roomSpawnChance = 0.35f;
+    [Tooltip("Minimum number of bands required between two spawned rooms, so they read as an occasional flourish instead of clustering together.")]
+    public int minBandsBetweenRooms = 2;
+    [Tooltip("Extra world-unit gap between the maze's outer wall and the room image, so it doesn't visually touch the vent wall.")]
+    public float roomSideOffset = 0.5f;
 }

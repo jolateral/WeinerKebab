@@ -12,9 +12,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1149361030821478886e7151d4a5b99b, type: 3}
   m_Name: GameSettings
   m_EditorClassIdentifier: Assembly-CSharp::GameSettings
-  playerSpeed: 4
+  playerSpeed: 5
   playerAccel: 50
-  stunDurationSeconds: 0.5
+  stunDurationSeconds: 0.25
   postStunDeathGraceSeconds: 0.75
   steamSpeedMultiplier: 0.6
   fanForce: 2.75
@@ -36,8 +36,8 @@ MonoBehaviour:
   rowsPerBand: 8
   bandsAheadBuffer: 3
   steamChance: 0.057
-  wireChance: 0.07
-  fanChance: 0.05
+  wireChance: 0.04
+  fanChance: 0
   horizontalCarveBiasRange: {x: 0.55, y: 0.95}
   minHorizontalRunCellsRange: {x: 2, y: 6}
   verticalRunCellsRange: {x: 1, y: 4}
@@ -48,3 +48,6 @@ MonoBehaviour:
   wideBandChance: 0.18
   wideBandColumnMultiplier: 2.2
   minBandsBetweenWideBands: 3
+  roomSpawnChance: 0.35
+  minBandsBetweenRooms: 2
+  roomSideOffset: 0.5
