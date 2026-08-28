@@ -14,9 +14,12 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::GameSettings
   playerSpeed: 5
   playerAccel: 50
+  verticalSpeedMultiplier: 1.5
   stunDurationSeconds: 0.25
   postStunDeathGraceSeconds: 0.75
-  steamSpeedMultiplier: 0.6
+  wireShakeDuration: 0.35
+  wireShakeMagnitude: 0.22
+  steamSpeedMultiplier: 0.8
   fanForce: 2.75
   fanTunnelLengthCellsRange: {x: 1, y: 3}
   riseStartDelaySeconds: 1.5
@@ -25,9 +28,9 @@ MonoBehaviour:
   cameraRiseSpeedMax: 2.6
   offscreenDeathMargin: 0.3
   cameraZoomOutMultiplier: 1.8
-  cameraWidthSmoothTime: 0.5
+  cameraWidthSmoothTime: 2
   enableRubberBanding: 1
-  rubberBandDangerRange: 5
+  rubberBandDangerRange: 10
   rubberBandMinMultiplier: 0.25
   rubberBandMaxMultiplier: 1.15
   rubberBandSmoothTime: 0.8
@@ -44,10 +47,18 @@ MonoBehaviour:
   midRunStaircaseChanceRange: {x: 0.05, y: 0.5}
   hazardBypassChance: 1
   bypassDetourExtensionRange: {x: 0, y: 3}
-  enableWideRevealBands: 0
-  wideBandChance: 0.18
+  enableWideRevealBands: 1
+  wideBandChance: 0.12
   wideBandColumnMultiplier: 2.2
   minBandsBetweenWideBands: 3
+  wideBandHazardChanceMultiplier: 0.4
+  wideBandHorizontalRunCellsRange: {x: 1, y: 2}
+  wideBandVerticalRunCellsRange: {x: 1, y: 2}
+  wideBandRiseSpeedMultiplier: 0.5
+  wideBandResumeDirectionChance: 0.4
+  wideBandBlockedAreaFraction: 0.28
+  wideBandBlockClusterSizeRange: {x: 2, y: 3}
   roomSpawnChance: 0.35
   minBandsBetweenRooms: 2
   roomSideOffset: 0.5
+  milestoneIntervalMeters: 100

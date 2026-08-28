@@ -104,6 +104,17 @@ public class MazeGenerator : MonoBehaviour
         return settings.columns * CellSize;
     }
 
+    // True if the band occupying this world Y is a wide "choice" band (wider than the normal
+    // column count). CameraFollow uses this to ease off the flood's rise speed while the player is
+    // navigating a wide band, so one wrong turn in a real branching layout is recoverable instead
+    // of an instant death sentence.
+    public bool IsWideBandAtWorldY(float worldY)
+    {
+        int row = Mathf.FloorToInt(worldY / CellSize);
+        if (rowLayout.TryGetValue(row, out var layout)) return layout.columns > settings.columns;
+        return false;
+    }
+
     // Recursive backtracker over a band of rows, entering from a world-space X position on the
     // band's bottom edge (world X rather than a column index, since a wide reveal band's column
     // coordinate space differs from a normal band's).
@@ -123,7 +134,18 @@ public class MazeGenerator : MonoBehaviour
         // to the one below it.
         if (settings.enableWideRevealBands && !isFirstBand && bandsSinceWide > settings.minBandsBetweenWideBands && rng.NextDouble() < settings.wideBandChance)
         {
-            bandColumns = Mathf.Max(settings.columns, Mathf.RoundToInt(settings.columns * settings.wideBandColumnMultiplier));
+            int rawWideColumns = Mathf.Max(settings.columns, Mathf.RoundToInt(settings.columns * settings.wideBandColumnMultiplier));
+            // Bands are always centered on the same fixed BandCenterX, so a wide band's xOffset is
+            // settings.columns*cellSize*0.5 - rawWideColumns*cellSize*0.5 relative to a normal
+            // band's xOffset of 0. If (rawWideColumns - settings.columns) is ODD, that difference
+            // is a HALF-cell, not a whole one - meaning the wide band's entire cell grid sits
+            // staggered half a cell sideways from every normal band's grid. No exit opening can
+            // ever land squarely on the band above when that's the case (this was the seam
+            // misalignment bug). Bumping to the next even difference keeps both grids on the same
+            // lattice, so entryCol/exitCol always line up exactly, with no rounding slop.
+            int diff = rawWideColumns - settings.columns;
+            if (diff % 2 != 0) rawWideColumns += 1;
+            bandColumns = rawWideColumns;
             isWideBand = true;
             bandsSinceWide = 0;
         }
@@ -142,86 +164,186 @@ public class MazeGenerator : MonoBehaviour
             rowLayout[startRow + r] = new BandLayout { columns = bandColumns, xOffset = xOffset };
         }
 
-        var stack = new Stack<(int r, int c)>();
-        stack.Push((0, entryCol));
-        band[0][entryCol].visited = true;
-
         // Roll this band's "personality" once, up front, rather than reading a fixed value from
         // settings. This is what breaks the uniform feel - one band might commit hard to one long
         // horizontal sweep (high bias, long min run), the next might be scrappier and twistier
         // (lower bias, short min run), so the player can't predict what's coming a band ahead.
         float bandHorizontalBias = (float)(settings.horizontalCarveBiasRange.x +
             rng.NextDouble() * (settings.horizontalCarveBiasRange.y - settings.horizontalCarveBiasRange.x));
-        if (isWideBand) bandHorizontalBias = Mathf.Clamp01(bandHorizontalBias + 0.1f);
         float bandStaircaseChance = (float)(settings.midRunStaircaseChanceRange.x +
             rng.NextDouble() * (settings.midRunStaircaseChanceRange.y - settings.midRunStaircaseChanceRange.x));
 
-        var incomingDir = new Dictionary<(int, int), string>();
-        var runLength = new Dictionary<(int, int), int>();
-        var runTarget = new Dictionary<(int, int), int>();
-        var lastHorizontalDir = new Dictionary<(int, int), string>();
-        var verticalRunTarget = new Dictionary<(int, int), int>();
-        incomingDir[(0, entryCol)] = null;
-        runLength[(0, entryCol)] = 0;
-
-        while (stack.Count > 0)
+        // Choice bands get their OWN carve profile instead of reusing the normal band's. The
+        // normal profile is tuned to look right at the normal (narrow) column count - it favors
+        // long horizontal "sweeps" that, at 2x+ the width, turn into big uninterrupted open bars
+        // instead of a grid of individual shafts. Lower bias + a strong cap on how long any run
+        // can get + a much lower "keep going the same way" chance keeps the visual grain (wall
+        // spacing in world units) consistent with normal bands, just repeated across more shafts.
+        Vector2Int horizontalRunRange = isWideBand ? settings.wideBandHorizontalRunCellsRange : settings.minHorizontalRunCellsRange;
+        Vector2Int verticalRunRange = isWideBand ? settings.wideBandVerticalRunCellsRange : settings.verticalRunCellsRange;
+        float resumeDirectionChance = isWideBand ? settings.wideBandResumeDirectionChance : 0.85f;
+        if (isWideBand)
         {
-            var (r, c) = stack.Peek();
-            var options = new List<(int nr, int nc, string wallHere, string wallThere)>();
-
-            if (r + 1 < numRows && !band[r + 1][c].visited) options.Add((r + 1, c, "N", "S"));
-            if (r - 1 >= 0 && !band[r - 1][c].visited) options.Add((r - 1, c, "S", "N"));
-            if (c + 1 < bandColumns && !band[r][c + 1].visited) options.Add((r, c + 1, "E", "W"));
-            if (c - 1 >= 0 && !band[r][c - 1].visited) options.Add((r, c - 1, "W", "E"));
-
-            if (options.Count == 0) { stack.Pop(); continue; }
-
-            int target = runTarget.TryGetValue((r, c), out var t) ? t : settings.minHorizontalRunCellsRange.x;
-            string lastHoriz = lastHorizontalDir.TryGetValue((r, c), out var lh) ? lh : null;
-            int vTarget = verticalRunTarget.TryGetValue((r, c), out var vt) ? vt : settings.verticalRunCellsRange.x;
-
-            var pick = MomentumPick(options, rng, incomingDir[(r, c)], runLength[(r, c)], target, vTarget, lastHoriz, bandHorizontalBias, bandStaircaseChance);
-            SetWall(band[r][c], pick.wallHere, false);
-            SetWall(band[pick.nr][pick.nc], pick.wallThere, false);
-            band[pick.nr][pick.nc].visited = true;
-
-            incomingDir[(pick.nr, pick.nc)] = pick.wallHere;
-            runLength[(pick.nr, pick.nc)] = (pick.wallHere == incomingDir[(r, c)]) ? runLength[(r, c)] + 1 : 1;
-
-            if (pick.wallHere == "E" || pick.wallHere == "W")
-            {
-                lastHorizontalDir[(pick.nr, pick.nc)] = pick.wallHere;
-                runTarget[(pick.nr, pick.nc)] = (pick.wallHere == incomingDir[(r, c)] && runTarget.ContainsKey((r, c)))
-                    ? runTarget[(r, c)]
-                    : rng.Next(settings.minHorizontalRunCellsRange.x, settings.minHorizontalRunCellsRange.y + 1);
-            }
-            else
-            {
-                if (lastHorizontalDir.ContainsKey((r, c))) lastHorizontalDir[(pick.nr, pick.nc)] = lastHorizontalDir[(r, c)];
-                if (runTarget.ContainsKey((r, c))) runTarget[(pick.nr, pick.nc)] = runTarget[(r, c)];
-
-                verticalRunTarget[(pick.nr, pick.nc)] = (pick.wallHere == incomingDir[(r, c)] && verticalRunTarget.ContainsKey((r, c)))
-                    ? verticalRunTarget[(r, c)]
-                    : rng.Next(settings.verticalRunCellsRange.x, settings.verticalRunCellsRange.y + 1);
-            }
-
-            stack.Push((pick.nr, pick.nc));
+            bandHorizontalBias = Mathf.Clamp01(bandHorizontalBias * 0.6f);
+            bandStaircaseChance = Mathf.Clamp01(bandStaircaseChance + 0.3f);
         }
 
-        int exitCol = rng.Next(bandColumns);
+        // Choice bands carve around pre-blocked "rock/machinery" clusters instead of filling the
+        // ENTIRE grid. This matters because a recursive-backtracker maze always visits 100% of the
+        // cells it's allowed to touch before it stops - that's exactly why keeping the full carve
+        // (instead of collapsing to one path, as normal bands do) was filling the whole band
+        // edge-to-edge with corridor, reading as one solid block instead of a snaking maze. Blocking
+        // out a chunk of the area up front gives the carve real gaps to wind around, so it reads at
+        // the same density as your normal bands - just wider, with real branch choices.
+        bool[,] blocked = new bool[numRows, bandColumns];
+        if (isWideBand)
+        {
+            blocked = BuildWideBandBlockedMask(numRows, bandColumns, entryCol, rng);
+            
+            // FIX: Force the exit to align with the next normal band by blocking the top row's outer columns.
+            int diff = bandColumns - settings.columns;
+            int offset = diff / 2;
+            for (int c = 0; c < bandColumns; c++)
+            {
+                if (c < offset || c >= offset + settings.columns)
+                {
+                    blocked[numRows - 1, c] = true;
+                }
+            }
+        }
+
+        List<(int r, int c)> path = null;
+        int maxAttempts = isWideBand ? 4 : 1;
+        for (int attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            // Reset to a blank slate for this attempt (needed on a retry after a failed blocked
+            // carve below).
+            for (int r = 0; r < numRows; r++)
+                for (int c = 0; c < bandColumns; c++)
+                    band[r][c] = new MazeCell();
+
+            var stack = new Stack<(int r, int c)>();
+            stack.Push((0, entryCol));
+            band[0][entryCol].visited = true;
+
+            var incomingDir = new Dictionary<(int, int), string>();
+            var runLength = new Dictionary<(int, int), int>();
+            var runTarget = new Dictionary<(int, int), int>();
+            var lastHorizontalDir = new Dictionary<(int, int), string>();
+            var verticalRunTarget = new Dictionary<(int, int), int>();
+            incomingDir[(0, entryCol)] = null;
+            runLength[(0, entryCol)] = 0;
+
+            while (stack.Count > 0)
+            {
+                var (r, c) = stack.Peek();
+                var options = new List<(int nr, int nc, string wallHere, string wallThere)>();
+
+                if (r + 1 < numRows && !band[r + 1][c].visited && !blocked[r + 1, c]) options.Add((r + 1, c, "N", "S"));
+                if (r - 1 >= 0 && !band[r - 1][c].visited && !blocked[r - 1, c]) options.Add((r - 1, c, "S", "N"));
+                if (c + 1 < bandColumns && !band[r][c + 1].visited && !blocked[r, c + 1]) options.Add((r, c + 1, "E", "W"));
+                if (c - 1 >= 0 && !band[r][c - 1].visited && !blocked[r, c - 1]) options.Add((r, c - 1, "W", "E"));
+
+                if (options.Count == 0) { stack.Pop(); continue; }
+
+                int target = runTarget.TryGetValue((r, c), out var t) ? t : horizontalRunRange.x;
+                string lastHoriz = lastHorizontalDir.TryGetValue((r, c), out var lh) ? lh : null;
+                int vTarget = verticalRunTarget.TryGetValue((r, c), out var vt) ? vt : verticalRunRange.x;
+
+                var pick = MomentumPick(options, rng, incomingDir[(r, c)], runLength[(r, c)], target, vTarget, lastHoriz, bandHorizontalBias, bandStaircaseChance, resumeDirectionChance);
+                SetWall(band[r][c], pick.wallHere, false);
+                SetWall(band[pick.nr][pick.nc], pick.wallThere, false);
+                band[pick.nr][pick.nc].visited = true;
+
+                incomingDir[(pick.nr, pick.nc)] = pick.wallHere;
+                runLength[(pick.nr, pick.nc)] = (pick.wallHere == incomingDir[(r, c)]) ? runLength[(r, c)] + 1 : 1;
+
+                if (pick.wallHere == "E" || pick.wallHere == "W")
+                {
+                    lastHorizontalDir[(pick.nr, pick.nc)] = pick.wallHere;
+                    runTarget[(pick.nr, pick.nc)] = (pick.wallHere == incomingDir[(r, c)] && runTarget.ContainsKey((r, c)))
+                        ? runTarget[(r, c)]
+                        : rng.Next(horizontalRunRange.x, horizontalRunRange.y + 1);
+                }
+                else
+                {
+                    if (lastHorizontalDir.ContainsKey((r, c))) lastHorizontalDir[(pick.nr, pick.nc)] = lastHorizontalDir[(r, c)];
+                    if (runTarget.ContainsKey((r, c))) runTarget[(pick.nr, pick.nc)] = runTarget[(r, c)];
+
+                    verticalRunTarget[(pick.nr, pick.nc)] = (pick.wallHere == incomingDir[(r, c)] && verticalRunTarget.ContainsKey((r, c)))
+                        ? verticalRunTarget[(r, c)]
+                        : rng.Next(verticalRunRange.x, verticalRunRange.y + 1);
+                }
+
+                stack.Push((pick.nr, pick.nc));
+            }
+
+            path = ExtractSinglePath(band, numRows, bandColumns, entryCol);
+            if (path[path.Count - 1].r == numRows - 1) break; // reached the top - good, we're done
+
+            // The blocked layout walled off the top row from the entry entirely (bad luck with
+            // cluster placement). Drop the blocking and recarve one more time so we always end up
+            // with a working band - worst case a choice band just looks like a normal full-grid
+            // one instead of leaving the player stuck.
+            blocked = new bool[numRows, bandColumns];
+            
+            // FIX: Re-apply the top row constraint even on a retry so we don't break alignment.
+            if (isWideBand)
+            {
+                int diff = bandColumns - settings.columns;
+                int offset = diff / 2;
+                for (int c = 0; c < bandColumns; c++)
+                {
+                    if (c < offset || c >= offset + settings.columns)
+                    {
+                        blocked[numRows - 1, c] = true;
+                    }
+                }
+            }
+        }
+
         generatedUpToRow = startRow + numRows - 1;
 
-        List<(int r, int c)> path = ExtractSinglePath(band, numRows, bandColumns, entryCol);
-        CollapseToSinglePath(band, numRows, bandColumns, path);
-        exitCol = path[path.Count - 1].c;
+        // ExtractSinglePath gives us THE route from entry to the top of the band (the carve above
+        // produces a perfect maze - exactly one route between any two cells). Normal bands then
+        // collapse everything else away so only that route remains, same as before. Wide "choice"
+        // bands instead keep the ENTIRE carved maze intact - every branch the backtracker visited
+        // is a real, walkable corridor - so the player gets a genuine "which way do I go" moment
+        // instead of one forced path. Only the single top-row cell this path ends on gets its
+        // ceiling opened, so the next band still connects cleanly; other branches are free to
+        // dead-end at the top of the reveal, which is fine - the choice is about the routes
+        // THROUGH the band, not about where it lets you out.
+        HashSet<(int, int)> spawnCells;
 
-        // spawnCells starts as just the single corridor - this is what keeps the maze reading
-        // exactly like it used to. PlaceObstacles below adds a handful of small "step around"
-        // detour cells to this set, one per bypassed hazard, so the vast majority of the layout
-        // is still one clean path with only the occasional local loop around an obstacle.
-        var spawnCells = new HashSet<(int, int)>(path);
+        if (isWideBand)
+        {
+            spawnCells = new HashSet<(int, int)>();
+            for (int r = 0; r < numRows; r++)
+                for (int c = 0; c < bandColumns; c++)
+                    if (band[r][c].visited) spawnCells.Add((r, c));
 
-        PlaceObstacles(startRow, numRows, band, bandColumns, rng, path, spawnCells);
+            var (entryR, entryC) = path[0];
+            band[entryR][entryC].wallS = false;
+            var (exitR, exitC) = path[path.Count - 1];
+            band[exitR][exitC].wallN = false;
+            foreach (var cell in path) band[cell.r][cell.c].onPath = true;
+
+            PlaceObstaclesWideBand(startRow, band, rng, spawnCells, path);
+        }
+        else
+        {
+            CollapseToSinglePath(band, numRows, bandColumns, path);
+
+            // spawnCells starts as just the single corridor - this is what keeps the maze reading
+            // exactly like it used to. PlaceObstacles below adds a handful of small "step around"
+            // detour cells to this set, one per bypassed hazard, so the vast majority of the layout
+            // is still one clean path with only the occasional local loop around an obstacle.
+            spawnCells = new HashSet<(int, int)>(path);
+            PlaceObstacles(startRow, numRows, band, bandColumns, rng, path, spawnCells);
+        }
+
+        int exitCol = path[path.Count - 1].c;
+
         SpawnBandGeometry(startRow, spawnCells, band, xOffset);
         TrySpawnBackgroundRoom(startRow, numRows, xOffset, spawnCells, rng);
 
@@ -229,7 +351,54 @@ public class MazeGenerator : MonoBehaviour
         return exitWorldX;
     }
 
-    // Same BFS-over-the-spanning-tree extraction as the original generator: since the carve above
+    // Scatters several chunky rectangular "blocked" clusters (rock/machinery the vent routes
+    // around) across a choice band before it's carved, so the maze only fills part of the grid
+    // instead of the full rectangle. Chunky rectangles (rather than independently-random single
+    // cells) read as deliberate obstacles instead of Swiss-cheese noise, and leave the remaining
+    // open area connected enough for a normal-looking winding maze to form around them. Row 0
+    // (the seam into this band) and the top row (the seam into the next band) are always left
+    // fully clear so band-to-band connections stay reliable.
+    private bool[,] BuildWideBandBlockedMask(int numRows, int bandColumns, int entryCol, System.Random rng)
+    {
+        bool[,] blocked = new bool[numRows, bandColumns];
+        if (numRows <= 2) return blocked; // too shallow a band for this to be worth doing
+
+        int totalCarveableRows = numRows - 2; // excludes row 0 and the top row
+        int area = totalCarveableRows * bandColumns;
+        int targetBlocked = Mathf.RoundToInt(area * Mathf.Clamp01(settings.wideBandBlockedAreaFraction));
+
+        int lo = Mathf.Max(1, settings.wideBandBlockClusterSizeRange.x);
+        int hi = Mathf.Max(lo, settings.wideBandBlockClusterSizeRange.y);
+
+        int blockedCount = 0;
+        int safetyAttempts = 0;
+        while (blockedCount < targetBlocked && safetyAttempts < 200)
+        {
+            safetyAttempts++;
+            int clusterW = rng.Next(lo, hi + 1);
+            int clusterH = rng.Next(lo, hi + 1);
+
+            int startRow = rng.Next(1, Mathf.Max(2, numRows - 1 - clusterH + 1)); // stays within rows [1, numRows-2]
+            int startCol = rng.Next(0, Mathf.Max(1, bandColumns - clusterW + 1));
+
+            for (int r = startRow; r < Mathf.Min(startRow + clusterH, numRows - 1); r++)
+            {
+                for (int c = startCol; c < Mathf.Min(startCol + clusterW, bandColumns); c++)
+                {
+                    if (r == 0 && c == entryCol) continue; // never block the entry cell itself
+                    if (!blocked[r, c])
+                    {
+                        blocked[r, c] = true;
+                        blockedCount++;
+                    }
+                }
+            }
+        }
+
+        return blocked;
+    }
+
+
     // produces a perfect maze (exactly one route between any two cells), this finds THE route from
     // the entry to the top of the band.
     private List<(int r, int c)> ExtractSinglePath(MazeCell[][] band, int numRows, int bandColumns, int entryCol)
@@ -373,6 +542,34 @@ public class MazeGenerator : MonoBehaviour
             {
                 TryCarveBypass(band, numRows, bandColumns, path, i, spawnCells, rng);
             }
+        }
+    }
+
+    // Hazard placement for wide CHOICE bands. Unlike PlaceObstacles (which walks the single
+    // collapsed corridor), this scatters hazards across every branch of the kept-intact spanning
+    // tree, at reduced density (wideBandHazardChanceMultiplier) since a dense branching layout
+    // full of hazards gets unfair/unreadable fast. No bypass-detour carving here - the branching
+    // structure itself already gives the player alternate routes around anything they'd rather
+    // avoid, which is the whole point of a choice band. Fans are intentionally skipped: their
+    // direction/span logic (PickFanDirection/PickFanSpan) assumes a single linear path with a
+    // clear "next step", which off-path branch cells don't have.
+    private void PlaceObstaclesWideBand(int startRow, MazeCell[][] band, System.Random rng,
+        HashSet<(int, int)> spawnCells, List<(int r, int c)> mainPath)
+    {
+        var entry = mainPath[0];
+        var exit = mainPath[mainPath.Count - 1];
+        double steamChance = settings.steamChance * settings.wideBandHazardChanceMultiplier;
+        double wireChance = settings.wireChance * settings.wideBandHazardChanceMultiplier;
+
+        foreach (var (r, c) in spawnCells)
+        {
+            if (startRow + r == 0) continue;             // keep spawn row clear
+            if (r == entry.r && c == entry.c) continue;   // keep the entry cell clear
+            if (r == exit.r && c == exit.c) continue;     // keep the exit cell clear
+
+            double roll = rng.NextDouble();
+            if (roll < steamChance) band[r][c].obstacle = ObstacleType.Steam;
+            else if (roll < steamChance + wireChance) band[r][c].obstacle = ObstacleType.Wire;
         }
     }
 
@@ -648,7 +845,7 @@ public class MazeGenerator : MonoBehaviour
     private (int nr, int nc, string wallHere, string wallThere) MomentumPick(
         List<(int nr, int nc, string wallHere, string wallThere)> options, System.Random rng,
         string enteredDir, int runLen, int horizontalTarget, int verticalTarget, string lastHorizontalDir,
-        float horizontalBias, float staircaseChance)
+        float horizontalBias, float staircaseChance, float resumeDirectionChance = 0.85f)
     {
         bool enteredHorizontal = enteredDir == "E" || enteredDir == "W";
         int minRun = enteredHorizontal ? horizontalTarget : verticalTarget;
@@ -670,7 +867,7 @@ public class MazeGenerator : MonoBehaviour
         if (lastHorizontalDir != null)
         {
             var resumeOption = horizontalOptions.Find(o => o.wallHere == lastHorizontalDir);
-            if (resumeOption.wallHere != null && rng.NextDouble() < 0.85) return resumeOption;
+            if (resumeOption.wallHere != null && rng.NextDouble() < resumeDirectionChance) return resumeOption;
         }
 
         if (horizontalOptions.Count > 0 && rng.NextDouble() < horizontalBias)

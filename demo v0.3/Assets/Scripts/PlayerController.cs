@@ -10,6 +10,10 @@ using UnityEngine.InputSystem;
 // An arrow-key press or a swipe sets a new `currentDirection` - it doesn't have to be held down.
 // Since corridors are single-width, an attempted turn into a wall is simply blocked by physics
 // collision until the player is at a junction where that direction is actually open.
+//
+// SPEED: moving straight UP is boosted by settings.verticalSpeedMultiplier. Almost all hazards and
+// decision points happen on turns or horizontal stretches, so this makes "climbing" read as a fast,
+// automatic rush and turning to navigate/dodge feel like a deliberate change of pace by contrast.
 [RequireComponent(typeof(Rigidbody2D))]
 public class PlayerController : MonoBehaviour
 {
@@ -38,6 +42,10 @@ public class PlayerController : MonoBehaviour
 
     public Rigidbody2D Rigidbody => rb;
     public Vector2 CurrentVelocity => currentVelocity;
+
+    // Fired the instant a wire stun is applied (once per contact - see ApplyStun). CameraFollow
+    // subscribes to this to trigger the electrocution screen-shake.
+    public System.Action OnStunned;
 
     private Vector2 touchStartPos;
     private bool touchActive = false;
@@ -75,7 +83,7 @@ public class PlayerController : MonoBehaviour
 
     void FixedUpdate()
     {
-        float speed = IsStunned ? 0f : settings.playerSpeed * steamMultiplier;
+        float speed = IsStunned ? 0f : settings.playerSpeed * steamMultiplier * CurrentDirectionSpeedMultiplier();
         Vector2 targetVelocity = currentDirection * speed + fanForceThisFrame;
 
         currentVelocity = Vector2.Lerp(currentVelocity, targetVelocity, 1f - Mathf.Exp(-settings.playerAccel * Time.fixedDeltaTime));
@@ -83,6 +91,13 @@ public class PlayerController : MonoBehaviour
 
         // Fan force is re-applied every frame the player stays in a fan trigger (OnTriggerStay2D).
         fanForceThisFrame = Vector2.zero;
+    }
+
+    // Straight-up movement gets the vertical speed boost; every other direction (including down)
+    // stays at normal speed, since down/sideways is where turns and hazard-dodging happen.
+    private float CurrentDirectionSpeedMultiplier()
+    {
+        return currentDirection == Vector2.up ? settings.verticalSpeedMultiplier : 1f;
     }
 
     private void ReadKeyboardTurn()
@@ -153,6 +168,7 @@ public class PlayerController : MonoBehaviour
     public void ApplyStun()
     {
         stunTimeRemaining = settings.stunDurationSeconds;
+        OnStunned?.Invoke();
     }
 
     public void ApplyFanForce(Vector2 direction)
