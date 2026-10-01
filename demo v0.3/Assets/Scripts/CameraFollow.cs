@@ -264,4 +264,9 @@ public class CameraFollow : MonoBehaviour
 
         transform.position = basePosition + shakeOffset;
     }
+
+            public void TriggerCatCatchDeath()
+    {
+        OnPlayerCaught?.Invoke();
+    }
 }
