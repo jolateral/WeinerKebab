@@ -12,18 +12,23 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1149361030821478886e7151d4a5b99b, type: 3}
   m_Name: GameSettings
   m_EditorClassIdentifier: Assembly-CSharp::GameSettings
-  playerSpeed: 5
+  playerSpeed: 4.5
   playerAccel: 50
   verticalSpeedMultiplier: 1.5
+  maxAmmo: 5
+  startingAmmo: 0
+  catSpawnMinHeightMeters: 25
+  ammoSpawnChance: 0.25
+  catSpawnChance: 0.03
   stunDurationSeconds: 0.25
   postStunDeathGraceSeconds: 0.75
   wireShakeDuration: 0.35
   wireShakeMagnitude: 0.22
-  steamSpeedMultiplier: 0.8
+  steamSpeedMultiplier: 0.6
   fanForce: 2.75
   fanTunnelLengthCellsRange: {x: 1, y: 3}
   riseStartDelaySeconds: 1.5
-  cameraRiseSpeedBase: 1
+  cameraRiseSpeedBase: 1.5
   cameraRiseRampPerSec: 0.03
   cameraRiseSpeedMax: 2.6
   offscreenDeathMargin: 0.3
@@ -32,7 +37,7 @@ MonoBehaviour:
   enableRubberBanding: 1
   rubberBandDangerRange: 10
   rubberBandMinMultiplier: 0.25
-  rubberBandMaxMultiplier: 1.15
+  rubberBandMaxMultiplier: 1.1
   rubberBandSmoothTime: 0.8
   columns: 5
   cellSize: 1
@@ -48,7 +53,7 @@ MonoBehaviour:
   hazardBypassChance: 1
   bypassDetourExtensionRange: {x: 0, y: 3}
   enableWideRevealBands: 1
-  wideBandChance: 0.12
+  wideBandChance: 0.4
   wideBandColumnMultiplier: 2.2
   minBandsBetweenWideBands: 3
   wideBandHazardChanceMultiplier: 0.4
@@ -58,6 +63,9 @@ MonoBehaviour:
   wideBandResumeDirectionChance: 0.4
   wideBandBlockedAreaFraction: 0.28
   wideBandBlockClusterSizeRange: {x: 2, y: 3}
+  requirePartnerInWideBands: 1
+  partnerQuestRiseSpeedMultiplier: 0.2
+  partnerQuestMinBufferAboveEdge: 1.5
   roomSpawnChance: 0.35
   minBandsBetweenRooms: 2
   roomSideOffset: 0.5

@@ -62,6 +62,9 @@ public class CameraFollow : MonoBehaviour
     private float rubberBandMultiplier = 1f;
     private float rubberBandVelocity = 0f;
 
+    private float questRiseModifier = 1f;      // smoothed version of the wide-band / partner-quest rise multiplier
+    private float questRiseModifierVelocity = 0f;
+
     // Wire-hit shake state
     private float shakeTimeRemaining = 0f;
     private float shakeTotalDuration = 0f;
@@ -128,6 +131,8 @@ public class CameraFollow : MonoBehaviour
         zoomVelocity = 0f;
         rubberBandMultiplier = 1f;
         rubberBandVelocity = 0f;
+        questRiseModifier = 1f;
+        questRiseModifierVelocity = 0f;
         velocity = Vector3.zero;
         shakeTimeRemaining = 0f;
         shakeTotalDuration = 0f;
@@ -190,12 +195,35 @@ public class CameraFollow : MonoBehaviour
         // the flood punishing exploration the same way it punishes a mistake in a normal
         // single-corridor band.
         float wideBandMultiplier = 1f;
-        if (mazeGenerator != null && mazeGenerator.IsWideBandAtWorldY(player.position.y))
+
+        // PARTNER QUEST: from the moment the player enters a wide band until they climb out of its
+        // exit (finding the partner does NOT end it early), the flood slows to a crawl (urgency
+        // without punishment), the camera stays zoomed out to show the whole band, and the camera is
+        // NOT allowed to kill the player - see the death check further down.
+        if (mazeGenerator != null) mazeGenerator.UpdatePartnerQuestProgress(player.position.y);
+        bool partnerQuestActive = mazeGenerator != null && mazeGenerator.IsPartnerQuestActiveAtWorldY(player.position.y);
+
+        if (partnerQuestActive)
+        {
+            wideBandMultiplier = settings.partnerQuestRiseSpeedMultiplier;
+        }
+        else if (mazeGenerator != null && mazeGenerator.IsWideBandAtWorldY(player.position.y))
         {
             wideBandMultiplier = settings.wideBandRiseSpeedMultiplier;
         }
 
-        float riseSpeed = baseRiseSpeed * rubberBandMultiplier * wideBandMultiplier;
+        // Ease between the normal / wide-band / quest multipliers instead of snapping, so entering or
+        // leaving a wide band never produces a sudden jolt in the flood's speed.
+        questRiseModifier = Mathf.SmoothDamp(questRiseModifier, wideBandMultiplier, ref questRiseModifierVelocity, settings.rubberBandSmoothTime);
+        float riseSpeed = baseRiseSpeed * rubberBandMultiplier * questRiseModifier;
+
+        if (partnerQuestActive)
+        {
+            // Safety net: if the player is nearly off the bottom of the screen, freeze the rise
+            // entirely so they can never be pushed out of view while hunting for the partner.
+            float edgeNow = basePosition.y - cam.orthographicSize;
+            if (player.position.y - edgeNow < settings.partnerQuestMinBufferAboveEdge) riseSpeed = 0f;
+        }
         risingFloorY += riseSpeed * Time.deltaTime;
 
         if (mazeGenerator != null) mazeGenerator.EnsureGeneratedAhead(risingFloorY);
@@ -243,7 +271,7 @@ public class CameraFollow : MonoBehaviour
         }
 
         bool inDeathGrace = playerController != null && playerController.IsInDeathGrace;
-        if (!inDeathGrace && player.position.y < cameraBottomEdge - settings.offscreenDeathMargin)
+        if (!inDeathGrace && !partnerQuestActive && player.position.y < cameraBottomEdge - settings.offscreenDeathMargin)
         {
             gameOver = true;
             OnPlayerCaught?.Invoke();
@@ -263,5 +291,10 @@ public class CameraFollow : MonoBehaviour
         }
 
         transform.position = basePosition + shakeOffset;
+    }
+
+            public void TriggerCatCatchDeath()
+    {
+        OnPlayerCaught?.Invoke();
     }
 }

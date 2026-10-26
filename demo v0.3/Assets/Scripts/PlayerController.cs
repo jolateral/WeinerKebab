@@ -1,30 +1,32 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 
-// Attach to the Player GameObject alongside: Rigidbody2D (gravity scale 0, freeze Z rotation),
-// CircleCollider2D (not a trigger).
-// Requires the Input System package (Window > Package Manager > Input System) -
-// this script uses it directly via Keyboard.current / Touchscreen.current, no Input Actions asset needed.
-//
-// Movement model: the player moves continuously in `currentDirection` at all times (Pac-Man style).
-// An arrow-key press or a swipe sets a new `currentDirection` - it doesn't have to be held down.
-// Since corridors are single-width, an attempted turn into a wall is simply blocked by physics
-// collision until the player is at a junction where that direction is actually open.
-//
-// SPEED: moving straight UP is boosted by settings.verticalSpeedMultiplier. Almost all hazards and
-// decision points happen on turns or horizontal stretches, so this makes "climbing" read as a fast,
-// automatic rush and turning to navigate/dodge feel like a deliberate change of pace by contrast.
 [RequireComponent(typeof(Rigidbody2D))]
 public class PlayerController : MonoBehaviour
 {
     public GameSettings settings;
-    [Tooltip("Direction the player starts moving in before any input.")]
     public Vector2 startDirection = Vector2.up;
-    [Tooltip("Minimum swipe distance in pixels before it counts as a direction change.")]
     public float swipeThreshold = 30f;
 
-    [Tooltip("Sprite to mirror left/right as the player turns. Leave empty to auto-find on this GameObject or its children.")]
     public SpriteRenderer spriteRenderer;
+
+    [Header("Characters (cosmetic swap)")]
+    [Tooltip("The Animator that drives the player's sprite. Auto-found on this object or its children if left empty.")]
+    public Animator animator;
+    [Tooltip("Element 0 = the character you START as (Glork). Element 1 = the partner you can swap to (Flerb).")]
+    public CharacterDefinition[] characters;
+    [Tooltip("Index into the Characters list of who the player is right now.")]
+    public int currentCharacterIndex = 0;
+
+    [Header("Gun Setup")]
+    public GameObject bulletPrefab;
+    public Transform firePoint;
+
+    [Header("Gun Feel / Fairness")]
+    [Tooltip("Max distance a shot can register a hit at, in world units.")]
+    public float shootRange = 6f;
+    [Tooltip("Width of the hit-check lane swept forward, in world units. Wider than a single ray so a shot still registers even if the cat isn't perfectly centered in the corridor - this is the 'auto-aim' forgiveness. Keep it comfortably under one cell width so it doesn't reach through walls into the next lane.")]
+    public float shootLaneWidth = 1f;
 
     private Rigidbody2D rb;
     private Vector2 currentVelocity;
@@ -34,18 +36,22 @@ public class PlayerController : MonoBehaviour
     private float steamMultiplier = 1f;
     private Vector2 fanForceThisFrame = Vector2.zero;
 
+    private int currentAmmo = 0;
+
+    public int CurrentAmmo => currentAmmo;
     public bool IsStunned => stunTimeRemaining > 0f;
-
-    // True while stunned, or for a short grace window right after a stun ends - CameraFollow
-    // checks this so a wire hit can't chain directly into a flood death with no recovery window.
     public bool IsInDeathGrace => IsStunned || postStunGraceRemaining > 0f;
-
     public Rigidbody2D Rigidbody => rb;
     public Vector2 CurrentVelocity => currentVelocity;
 
-    // Fired the instant a wire stun is applied (once per contact - see ApplyStun). CameraFollow
-    // subscribes to this to trigger the electrocution screen-shake.
     public System.Action OnStunned;
+    public System.Action<int> OnAmmoChanged;
+    public System.Action<int> OnCharacterSwapped; // passes the NEW character index
+
+    public bool HasCharacters => characters != null && characters.Length >= 2;
+    public CharacterDefinition CurrentCharacter => HasCharacters ? characters[currentCharacterIndex % characters.Length] : null;
+    // The character the player is NOT currently playing as - this is who waits in the wide-band mazes.
+    public CharacterDefinition OtherCharacter => HasCharacters ? characters[(currentCharacterIndex + 1) % characters.Length] : null;
 
     private Vector2 touchStartPos;
     private bool touchActive = false;
@@ -58,7 +64,18 @@ public class PlayerController : MonoBehaviour
         currentDirection = startDirection.normalized;
 
         if (spriteRenderer == null) spriteRenderer = GetComponentInChildren<SpriteRenderer>();
+        if (animator == null) animator = GetComponentInChildren<Animator>();
         ApplyFacingFromDirection(currentDirection);
+        ApplyCharacterVisuals();
+    }
+
+    void Start()
+    {
+        if (settings != null)
+        {
+            currentAmmo = settings.startingAmmo;
+            OnAmmoChanged?.Invoke(currentAmmo);
+        }
     }
 
     void Update()
@@ -79,6 +96,7 @@ public class PlayerController : MonoBehaviour
 
         ReadKeyboardTurn();
         ReadSwipeTurn();
+        ReadShootInput();
     }
 
     void FixedUpdate()
@@ -89,12 +107,9 @@ public class PlayerController : MonoBehaviour
         currentVelocity = Vector2.Lerp(currentVelocity, targetVelocity, 1f - Mathf.Exp(-settings.playerAccel * Time.fixedDeltaTime));
         rb.linearVelocity = currentVelocity;
 
-        // Fan force is re-applied every frame the player stays in a fan trigger (OnTriggerStay2D).
         fanForceThisFrame = Vector2.zero;
     }
 
-    // Straight-up movement gets the vertical speed boost; every other direction (including down)
-    // stays at normal speed, since down/sideways is where turns and hazard-dodging happen.
     private float CurrentDirectionSpeedMultiplier()
     {
         return currentDirection == Vector2.up ? settings.verticalSpeedMultiplier : 1f;
@@ -105,11 +120,19 @@ public class PlayerController : MonoBehaviour
         var kb = Keyboard.current;
         if (kb == null) return;
 
-        // Use "this frame" presses, not held state, so a tap is enough - the player keeps moving after.
         if (kb.leftArrowKey.wasPressedThisFrame || kb.aKey.wasPressedThisFrame) SetDirection(Vector2.left);
         else if (kb.rightArrowKey.wasPressedThisFrame || kb.dKey.wasPressedThisFrame) SetDirection(Vector2.right);
         else if (kb.upArrowKey.wasPressedThisFrame || kb.wKey.wasPressedThisFrame) SetDirection(Vector2.up);
         else if (kb.downArrowKey.wasPressedThisFrame || kb.sKey.wasPressedThisFrame) SetDirection(Vector2.down);
+    }
+
+    private void ReadShootInput()
+    {
+        var kb = Keyboard.current;
+        if (kb != null && kb.spaceKey.wasPressedThisFrame)
+        {
+            Shoot();
+        }
     }
 
     private void ReadSwipeTurn()
@@ -132,7 +155,6 @@ public class PlayerController : MonoBehaviour
                 Vector2 delta = touch.position.ReadValue() - touchStartPos;
                 if (delta.magnitude >= swipeThreshold)
                 {
-                    // Snap to the dominant axis so diagonal swipes still read as a clean turn.
                     if (Mathf.Abs(delta.x) > Mathf.Abs(delta.y))
                         SetDirection(delta.x > 0 ? Vector2.right : Vector2.left);
                     else
@@ -149,9 +171,6 @@ public class PlayerController : MonoBehaviour
         ApplyFacingFromDirection(dir);
     }
 
-    // Mirrors the sprite left/right on horizontal turns. Left/right in this Pac-Man-style movement
-    // is the only case that needs a flip - up/down keeps whatever horizontal facing was last set,
-    // since there's nothing to mirror on a purely vertical turn.
     private void ApplyFacingFromDirection(Vector2 dir)
     {
         if (spriteRenderer == null) return;
@@ -159,7 +178,107 @@ public class PlayerController : MonoBehaviour
         else if (dir.x < 0f) spriteRenderer.flipX = true;
     }
 
-    // --- Called by hazard trigger scripts ---
+    // Purely cosmetic: swaps which character's running animation is playing. Controls, speed, ammo,
+    // hitbox - everything gameplay-related - stays exactly the same.
+    public void SwapCharacter()
+    {
+        if (!HasCharacters) return;
+        currentCharacterIndex = (currentCharacterIndex + 1) % characters.Length;
+        ApplyCharacterVisuals();
+        OnCharacterSwapped?.Invoke(currentCharacterIndex);
+    }
+
+    private void ApplyCharacterVisuals()
+    {
+        var def = CurrentCharacter;
+        if (def == null) return;
+        if (animator != null && def.runningController != null)
+        {
+            animator.runtimeAnimatorController = def.runningController;
+        }
+    }
+
+    public bool TryAddAmmo(int amount)
+    {
+        if (currentAmmo >= settings.maxAmmo) return false;
+        currentAmmo = Mathf.Min(currentAmmo + amount, settings.maxAmmo);
+        OnAmmoChanged?.Invoke(currentAmmo);
+        return true;
+    }
+
+    public void Shoot()
+    {
+        if (currentAmmo <= 0 || bulletPrefab == null) return;
+
+        currentAmmo--;
+        OnAmmoChanged?.Invoke(currentAmmo);
+
+        Vector3 spawnPos = firePoint != null ? firePoint.position : transform.position;
+
+        // Resolve the hit RIGHT NOW, at the exact moment the button is pressed, instead of waiting
+        // for a projectile to travel there. This is what actually fixes "I shot first but the cat
+        // still got me" - Update() runs before this frame's physics step, so a cat in the lane dies
+        // before the physics engine even gets a chance to register the player touching it this
+        // frame. The bullet instantiated below is now purely a visual tracer; it no longer decides
+        // whether the shot landed.
+        TryResolveHitScan(spawnPos, currentDirection);
+
+        GameObject bullet = Instantiate(bulletPrefab, spawnPos, Quaternion.identity);
+        Bullet bScript = bullet.GetComponent<Bullet>();
+        if (bScript != null)
+        {
+            bScript.Init(currentDirection);
+        }
+    }
+
+    private static readonly RaycastHit2D[] hitScanBuffer = new RaycastHit2D[16];
+
+    // Sweeps a thin box forward from the muzzle. Anything tagged "Wall" blocks the shot from going
+    // any further (so you can't shoot through walls into an adjacent corridor); the first thing
+    // tagged "Cat" encountered before that gets killed instantly. Everything else (the player's own
+    // collider, pickups, other bullets) is ignored and the scan just keeps going.
+    //
+    // Requires the enemy cat prefab to be tagged "Cat" (Project Settings > Tags and Layers, or the
+    // Tag dropdown on the prefab) - add this tag if it doesn't exist yet.
+    private void TryResolveHitScan(Vector3 origin, Vector2 direction)
+    {
+        ContactFilter2D filter = new ContactFilter2D();
+        filter.useTriggers = true;
+        filter.NoFilter();
+
+        int count = Physics2D.BoxCast(origin, new Vector2(shootLaneWidth, shootLaneWidth), 0f,
+            direction, filter, hitScanBuffer, shootRange);
+
+        // Small buffer, simple manual sort by distance - avoids pulling in extra usings for a
+        // one-off sort of at most 16 elements.
+        for (int i = 0; i < count - 1; i++)
+        {
+            for (int j = i + 1; j < count; j++)
+            {
+                if (hitScanBuffer[j].distance < hitScanBuffer[i].distance)
+                {
+                    (hitScanBuffer[i], hitScanBuffer[j]) = (hitScanBuffer[j], hitScanBuffer[i]);
+                }
+            }
+        }
+
+        for (int i = 0; i < count; i++)
+        {
+            var col = hitScanBuffer[i].collider;
+            if (col == null) continue;
+
+            if (col.CompareTag("Wall")) return; // shot is blocked here - stop scanning further
+
+            if (col.CompareTag("Cat"))
+            {
+                var cat = col.GetComponent<EnemyCat>();
+                if (cat != null) cat.Kill();
+                return;
+            }
+            // anything else (self collider, pickups, other bullets) - ignore and keep scanning
+        }
+    }
+
     public void SetInSteam(bool inSteam)
     {
         steamMultiplier = inSteam ? settings.steamSpeedMultiplier : 1f;
