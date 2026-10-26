@@ -17,14 +17,14 @@ MonoBehaviour:
   verticalSpeedMultiplier: 1.5
   maxAmmo: 5
   startingAmmo: 0
-  catSpawnMinHeightMeters: 50
-  ammoSpawnChance: 0.15
-  catSpawnChance: 0.02
+  catSpawnMinHeightMeters: 25
+  ammoSpawnChance: 0.25
+  catSpawnChance: 0.03
   stunDurationSeconds: 0.25
   postStunDeathGraceSeconds: 0.75
   wireShakeDuration: 0.35
   wireShakeMagnitude: 0.22
-  steamSpeedMultiplier: 0.8
+  steamSpeedMultiplier: 0.6
   fanForce: 2.75
   fanTunnelLengthCellsRange: {x: 1, y: 3}
   riseStartDelaySeconds: 1.5
@@ -53,7 +53,7 @@ MonoBehaviour:
   hazardBypassChance: 1
   bypassDetourExtensionRange: {x: 0, y: 3}
   enableWideRevealBands: 1
-  wideBandChance: 0.12
+  wideBandChance: 0.4
   wideBandColumnMultiplier: 2.2
   minBandsBetweenWideBands: 3
   wideBandHazardChanceMultiplier: 0.4
@@ -63,6 +63,9 @@ MonoBehaviour:
   wideBandResumeDirectionChance: 0.4
   wideBandBlockedAreaFraction: 0.28
   wideBandBlockClusterSizeRange: {x: 2, y: 3}
+  requirePartnerInWideBands: 1
+  partnerQuestRiseSpeedMultiplier: 0.2
+  partnerQuestMinBufferAboveEdge: 1.5
   roomSpawnChance: 0.35
   minBandsBetweenRooms: 2
   roomSideOffset: 0.5

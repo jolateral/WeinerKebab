@@ -169,5 +169,5 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 596783dc4f5db49599417459748db937, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::EnemyCat
-  moveSpeed: 2
+  moveSpeed: 1.5
   downwardBias: 0.75

@@ -16,10 +16,12 @@ public class EnemyCat : MonoBehaviour
 {
     public float moveSpeed = 2.2f;
 
+    [Tooltip("Cats only clean themselves up once they are at least this far (world units) BELOW the bottom edge of the camera, so they can never vanish while on screen.")]
+    public float despawnMarginBelowCamera = 3f;
+
     [Range(0f, 1f)]
     [Tooltip("Chance, at a junction with a South (downward) opening available, that the cat takes it instead of a random alternative. Keep this high so cats read as generally flowing downward.")]
     public float downwardBias = 0.75f;
-
     private MazeGenerator mazeGen;
     private Vector3 targetCellCenter;
     private int currentGlobalRow;
@@ -49,6 +51,19 @@ public class EnemyCat : MonoBehaviour
     void Update()
     {
         if (!initialized || mazeGen == null) return;
+
+        // Optimization that's invisible to the player: only remove this cat once it is fully
+        // below the camera's bottom edge (and a margin beyond it).
+        Camera cam = Camera.main;
+        if (cam != null)
+        {
+            float bottomEdge = cam.transform.position.y - cam.orthographicSize;
+            if (transform.position.y < bottomEdge - despawnMarginBelowCamera)
+            {
+                Destroy(gameObject);
+                return;
+            }
+        }
 
         transform.position = Vector3.MoveTowards(transform.position, targetCellCenter, moveSpeed * Time.deltaTime);
 

@@ -17,6 +17,23 @@ public class MazeGenerator : MonoBehaviour
 
     public GameObject[] roomPrefabs;
 
+    [Header("Partner Quest (wide bands)")]
+    [Tooltip("Prefab with a SpriteRenderer, a trigger Collider2D and the PartnerCharacter script. One is hidden in every wide band.")]
+    public GameObject partnerPrefab;
+    [Tooltip("Optional. Blocks the wide band's exit until the partner is found. If empty, a tinted copy of the wall segment prefab is used.")]
+    public GameObject gatePrefab;
+    public Color fallbackGateTint = new Color(1f, 0.35f, 0.35f, 1f);
+
+    private class PartnerQuest
+    {
+        public int startRow;
+        public int endRow;
+        public bool resolved;   // partner has been found, gate is open
+        public bool completed;  // player has actually climbed out through the exit - protections end here
+        public GameObject gate;
+    }
+    private List<PartnerQuest> partnerQuests = new List<PartnerQuest>();
+
     private List<MazeCell[]> rows = new List<MazeCell[]>();
     private int generatedUpToRow = -1;
     private float lastExitWorldX;
@@ -45,22 +62,88 @@ public class MazeGenerator : MonoBehaviour
     {
         int floodRow = Mathf.FloorToInt(floodWorldY / CellSize);
         int neededRow = floodRow + settings.rowsPerBand * settings.bandsAheadBuffer;
+
+        // Generation and cleanup are tied to what the CAMERA can actually see, not just to the flood.
+        // The camera can be zoomed way out (especially over wide bands), so a flood-only rule could
+        // spawn things inside the visible frame, or delete things the player can still see.
+        int cleanupBelowRow = floodRow - settings.rowsPerBand * 2;
+        Camera viewCam = Camera.main;
+        if (viewCam != null)
+        {
+            float viewBottomY = viewCam.transform.position.y - viewCam.orthographicSize;
+            float viewTopY = viewCam.transform.position.y + viewCam.orthographicSize;
+            int topRow = Mathf.FloorToInt(viewTopY / CellSize);
+            int bottomRow = Mathf.FloorToInt(viewBottomY / CellSize);
+            neededRow = Mathf.Max(neededRow, topRow + settings.rowsPerBand);              // always stay a full band above the top edge
+            cleanupBelowRow = Mathf.Min(cleanupBelowRow, bottomRow - settings.rowsPerBand); // never clean up within a band of the bottom edge
+        }
+
         while (generatedUpToRow < neededRow)
         {
             lastExitWorldX = GenerateBand(generatedUpToRow + 1, settings.rowsPerBand, lastExitWorldX);
         }
 
-        int cleanupBelowRow = floodRow - settings.rowsPerBand * 2;
         List<int> toRemove = new List<int>();
         foreach (var kvp in spawnedByRow)
         {
             if (kvp.Key < cleanupBelowRow)
             {
-                foreach (var go in kvp.Value) if (go != null) Destroy(go);
+                // Cats WALK, so one registered under a low row may have wandered up into view.
+                // They despawn themselves (see EnemyCat) once they're safely below the camera.
+                foreach (var go in kvp.Value)
+                {
+                    if (go != null && go.GetComponent<EnemyCat>() == null) Destroy(go);
+                }
                 toRemove.Add(kvp.Key);
             }
         }
         foreach (var k in toRemove) { spawnedByRow.Remove(k); rowLayout.Remove(k); }
+
+        partnerQuests.RemoveAll(q => q.endRow < cleanupBelowRow);
+    }
+
+    // True while the given world Y is inside a wide band the player hasn't finished yet. That means
+    // BOTH before the partner is found AND after, right up until the player climbs out of the exit.
+    public bool IsPartnerQuestActiveAtWorldY(float worldY)
+    {
+        int row = Mathf.FloorToInt(worldY / CellSize);
+        foreach (var q in partnerQuests)
+        {
+            if (!q.completed && row >= q.startRow && row <= q.endRow) return true;
+        }
+        return false;
+    }
+
+    // Called every frame by CameraFollow. Once the partner has been found and the player has climbed
+    // past the top of the band (through the opened gate), that quest is finished for good and the
+    // camera goes back to normal behavior.
+    public void UpdatePartnerQuestProgress(float playerWorldY)
+    {
+        int row = Mathf.FloorToInt(playerWorldY / CellSize);
+        foreach (var q in partnerQuests)
+        {
+            if (q.resolved && !q.completed && row > q.endRow) q.completed = true;
+        }
+    }
+
+    // Called by PartnerCharacter when the player touches them: marks the quest done and opens the gate.
+    public void ResolvePartnerQuest(int questId)
+    {
+        foreach (var q in partnerQuests)
+        {
+            if (q.startRow != questId) continue;
+            q.resolved = true;
+            if (q.gate != null) Destroy(q.gate);
+            q.gate = null;
+        }
+    }
+
+    // Lets other scripts hand an object to the maze so it gets cleaned up with the row it sits on.
+    public void RegisterSpawned(Vector3 worldPos, GameObject go)
+    {
+        int row = Mathf.Max(0, Mathf.FloorToInt(worldPos.y / CellSize));
+        if (!spawnedByRow.ContainsKey(row)) spawnedByRow[row] = new List<GameObject>();
+        spawnedByRow[row].Add(go);
     }
 
     public Vector3 CellWorldCenter(int row, int col)
@@ -262,6 +345,7 @@ public class MazeGenerator : MonoBehaviour
 
         HashSet<(int, int)> spawnCells;
         List<(int, int)> offPathDetourCells = new List<(int, int)>();
+        (int r, int c)? partnerCell = null;
 
         if (isWideBand)
         {
@@ -277,6 +361,11 @@ public class MazeGenerator : MonoBehaviour
             foreach (var cell in path) band[cell.r][cell.c].onPath = true;
 
             PlaceObstaclesWideBand(startRow, band, rng, spawnCells, path);
+
+            if (settings.requirePartnerInWideBands && partnerPrefab != null)
+            {
+                partnerCell = ChoosePartnerCell(band, numRows, bandColumns, spawnCells, path, rng);
+            }
         }
         else
         {
@@ -286,7 +375,8 @@ public class MazeGenerator : MonoBehaviour
         }
 
         SpawnBandGeometry(startRow, spawnCells, band, xOffset);
-        SpawnAmmoAndCats(startRow, numRows, band, spawnCells, path, offPathDetourCells, xOffset, rng);
+        SpawnAmmoAndCats(startRow, numRows, band, spawnCells, path, offPathDetourCells, xOffset, rng, partnerCell);
+        if (partnerCell.HasValue) SpawnPartnerAndGate(startRow, numRows, xOffset, path, partnerCell.Value);
         TrySpawnBackgroundRoom(startRow, numRows, xOffset, spawnCells, rng);
 
         int exitCol = path[path.Count - 1].c;
@@ -295,7 +385,8 @@ public class MazeGenerator : MonoBehaviour
     }
 
     private void SpawnAmmoAndCats(int startRow, int numRows, MazeCell[][] band, HashSet<(int, int)> spawnCells, 
-        List<(int r, int c)> path, List<(int r, int c)> detourCells, float xOffset, System.Random rng)
+        List<(int r, int c)> path, List<(int r, int c)> detourCells, float xOffset, System.Random rng,
+        (int r, int c)? reservedCell = null)
     {
         for (int r = 0; r < numRows; r++)
         {
@@ -305,6 +396,7 @@ public class MazeGenerator : MonoBehaviour
             for (int c = 0; c < band[r].Length; c++)
             {
                 if (!spawnCells.Contains((r, c))) continue;
+                if (reservedCell.HasValue && reservedCell.Value.r == r && reservedCell.Value.c == c) continue; // keep the partner's cell free of ammo/cats
                 Vector3 cellCenter = new Vector3(xOffset + c * CellSize + CellSize * 0.5f, worldRow * CellSize + CellSize * 0.5f, 0f);
 
                 // Plant ammo pickups (prefer detour cells so players must go out of their way)
@@ -332,6 +424,113 @@ public class MazeGenerator : MonoBehaviour
                 }
             }
         }
+    }
+
+    // Picks where the partner waits: a cell OFF the shortest entry->exit route, as far from that
+    // route (and from the entrance) as possible, so the player really has to explore a side branch.
+    private (int r, int c)? ChoosePartnerCell(MazeCell[][] band, int numRows, int bandColumns,
+        HashSet<(int, int)> spawnCells, List<(int r, int c)> path, System.Random rng)
+    {
+        var pathSet = new HashSet<(int, int)>();
+        foreach (var p in path) pathSet.Add((p.r, p.c));
+
+        var distFromPath = BfsDistances(band, numRows, bandColumns, path);
+        var distFromEntry = BfsDistances(band, numRows, bandColumns, new List<(int r, int c)> { path[0] });
+
+        float bestScore = -1f;
+        var best = new List<(int, int)>();
+        foreach (var cell in spawnCells)
+        {
+            if (pathSet.Contains(cell)) continue;
+            if (!distFromPath.TryGetValue(cell, out int dp)) continue;
+            if (!distFromEntry.TryGetValue(cell, out int de)) continue;
+
+            float score = dp + 0.5f * de;
+            if (score > bestScore + 0.001f) { bestScore = score; best.Clear(); best.Add(cell); }
+            else if (Mathf.Abs(score - bestScore) <= 0.001f) best.Add(cell);
+        }
+
+        (int r, int c) chosen;
+        if (best.Count > 0)
+        {
+            var pick = best[rng.Next(best.Count)];
+            chosen = (pick.Item1, pick.Item2);
+        }
+        else
+        {
+            // Degenerate band with no side branches: fall back to the middle of the route.
+            chosen = path[path.Count / 2];
+        }
+
+        band[chosen.r][chosen.c].obstacle = ObstacleType.None; // never bury the partner in steam/wire
+        return chosen;
+    }
+
+    private Dictionary<(int, int), int> BfsDistances(MazeCell[][] band, int numRows, int bandColumns, List<(int r, int c)> sources)
+    {
+        var dist = new Dictionary<(int, int), int>();
+        var queue = new Queue<(int, int)>();
+        foreach (var s in sources)
+        {
+            if (dist.ContainsKey((s.r, s.c))) continue;
+            dist[(s.r, s.c)] = 0;
+            queue.Enqueue((s.r, s.c));
+        }
+
+        void Step(bool open, int fromDist, int nr, int nc)
+        {
+            if (!open) return;
+            if (nr < 0 || nr >= numRows || nc < 0 || nc >= bandColumns) return;
+            if (dist.ContainsKey((nr, nc))) return;
+            dist[(nr, nc)] = fromDist + 1;
+            queue.Enqueue((nr, nc));
+        }
+
+        while (queue.Count > 0)
+        {
+            var (r, c) = queue.Dequeue();
+            int d = dist[(r, c)];
+            MazeCell cell = band[r][c];
+            Step(!cell.wallN, d, r + 1, c);
+            Step(!cell.wallS, d, r - 1, c);
+            Step(!cell.wallE, d, r, c + 1);
+            Step(!cell.wallW, d, r, c - 1);
+        }
+        return dist;
+    }
+
+    private void SpawnPartnerAndGate(int startRow, int numRows, float xOffset, List<(int r, int c)> path, (int r, int c) partnerCell)
+    {
+        var quest = new PartnerQuest { startRow = startRow, endRow = startRow + numRows - 1 };
+
+        // Gate: sits on the north edge of the exit cell, exactly where the opening into the next band is.
+        var exit = path[path.Count - 1];
+        int exitWorldRow = startRow + exit.r;
+        Vector3 exitCenter = new Vector3(xOffset + exit.c * CellSize + CellSize * 0.5f, exitWorldRow * CellSize + CellSize * 0.5f, 0f);
+        Vector3 gatePos = exitCenter + new Vector3(0f, CellSize * 0.5f, 0f);
+
+        GameObject gateSource = gatePrefab != null ? gatePrefab : wallSegmentPrefab;
+        if (gateSource != null)
+        {
+            var gate = Instantiate(gateSource, gatePos, Quaternion.identity, transform);
+            gate.transform.localScale = new Vector3(CellSize, gate.transform.localScale.y, gate.transform.localScale.z);
+            if (gatePrefab == null)
+            {
+                foreach (var sr in gate.GetComponentsInChildren<SpriteRenderer>()) sr.color = fallbackGateTint;
+            }
+            quest.gate = gate;
+            RegisterSpawned(gatePos, gate);
+        }
+
+        // Partner
+        int partnerWorldRow = startRow + partnerCell.r;
+        Vector3 partnerPos = new Vector3(xOffset + partnerCell.c * CellSize + CellSize * 0.5f, partnerWorldRow * CellSize + CellSize * 0.5f, 0f);
+        var partnerGO = Instantiate(partnerPrefab, partnerPos, Quaternion.identity, transform);
+        var partner = partnerGO.GetComponent<PartnerCharacter>();
+        if (partner != null) partner.Init(this, quest.startRow);
+        RegisterSpawned(partnerPos, partnerGO);
+
+        partnerQuests.Add(quest);
     }
 
     private bool[,] BuildWideBandBlockedMask(int numRows, int bandColumns, int entryCol, System.Random rng)

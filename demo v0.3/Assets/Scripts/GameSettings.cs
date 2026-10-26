@@ -65,7 +65,7 @@ public class GameSettings : ScriptableObject
     public Vector2Int bypassDetourExtensionRange = new Vector2Int(0, 3);
 
     [Header("Wide Reveal / Choice Bands")]
-    public bool enableWideRevealBands = false;
+    public bool enableWideRevealBands = true;
     [Range(0f, 1f)] public float wideBandChance = 0.12f;
     public float wideBandColumnMultiplier = 2.2f;
     public int minBandsBetweenWideBands = 3;
@@ -76,6 +76,14 @@ public class GameSettings : ScriptableObject
     [Range(0f, 0.85f)] public float wideBandResumeDirectionChance = 0.4f;
     [Range(0f, 0.7f)] public float wideBandBlockedAreaFraction = 0.4f;
     public Vector2Int wideBandBlockClusterSizeRange = new Vector2Int(2, 4);
+
+    [Header("Partner Quest (wide bands)")]
+    [Tooltip("If true, every wide band hides the OTHER character somewhere inside it, and the exit stays gated until the player touches them.")]
+    public bool requirePartnerInWideBands = true;
+    [Tooltip("Camera rise-speed multiplier while the player is inside a wide band, from entering it until they climb out of its exit (finding the partner doesn't end it). Very small = the flood only creeps, but still gives urgency.")]
+    [Range(0f, 1f)] public float partnerQuestRiseSpeedMultiplier = 0.12f;
+    [Tooltip("From entering a wide band until climbing out of its exit, the camera can NEVER kill the player. If the player gets closer than this (world units) to the bottom screen edge, the rise pauses completely so they can't be pushed off-screen.")]
+    public float partnerQuestMinBufferAboveEdge = 1.5f;
 
     [Header("Background Rooms")]
     [Range(0f, 1f)] public float roomSpawnChance = 0.35f;

@@ -10,6 +10,14 @@ public class PlayerController : MonoBehaviour
 
     public SpriteRenderer spriteRenderer;
 
+    [Header("Characters (cosmetic swap)")]
+    [Tooltip("The Animator that drives the player's sprite. Auto-found on this object or its children if left empty.")]
+    public Animator animator;
+    [Tooltip("Element 0 = the character you START as (Glork). Element 1 = the partner you can swap to (Flerb).")]
+    public CharacterDefinition[] characters;
+    [Tooltip("Index into the Characters list of who the player is right now.")]
+    public int currentCharacterIndex = 0;
+
     [Header("Gun Setup")]
     public GameObject bulletPrefab;
     public Transform firePoint;
@@ -38,6 +46,12 @@ public class PlayerController : MonoBehaviour
 
     public System.Action OnStunned;
     public System.Action<int> OnAmmoChanged;
+    public System.Action<int> OnCharacterSwapped; // passes the NEW character index
+
+    public bool HasCharacters => characters != null && characters.Length >= 2;
+    public CharacterDefinition CurrentCharacter => HasCharacters ? characters[currentCharacterIndex % characters.Length] : null;
+    // The character the player is NOT currently playing as - this is who waits in the wide-band mazes.
+    public CharacterDefinition OtherCharacter => HasCharacters ? characters[(currentCharacterIndex + 1) % characters.Length] : null;
 
     private Vector2 touchStartPos;
     private bool touchActive = false;
@@ -50,7 +64,9 @@ public class PlayerController : MonoBehaviour
         currentDirection = startDirection.normalized;
 
         if (spriteRenderer == null) spriteRenderer = GetComponentInChildren<SpriteRenderer>();
+        if (animator == null) animator = GetComponentInChildren<Animator>();
         ApplyFacingFromDirection(currentDirection);
+        ApplyCharacterVisuals();
     }
 
     void Start()
@@ -160,6 +176,26 @@ public class PlayerController : MonoBehaviour
         if (spriteRenderer == null) return;
         if (dir.x > 0f) spriteRenderer.flipX = false;
         else if (dir.x < 0f) spriteRenderer.flipX = true;
+    }
+
+    // Purely cosmetic: swaps which character's running animation is playing. Controls, speed, ammo,
+    // hitbox - everything gameplay-related - stays exactly the same.
+    public void SwapCharacter()
+    {
+        if (!HasCharacters) return;
+        currentCharacterIndex = (currentCharacterIndex + 1) % characters.Length;
+        ApplyCharacterVisuals();
+        OnCharacterSwapped?.Invoke(currentCharacterIndex);
+    }
+
+    private void ApplyCharacterVisuals()
+    {
+        var def = CurrentCharacter;
+        if (def == null) return;
+        if (animator != null && def.runningController != null)
+        {
+            animator.runtimeAnimatorController = def.runningController;
+        }
     }
 
     public bool TryAddAmmo(int amount)

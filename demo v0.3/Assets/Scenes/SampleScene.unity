@@ -158,6 +158,9 @@ MonoBehaviour:
   enemyCatPrefab: {fileID: 4936877330624499849, guid: 648fb68755df64cce8cac811757d4e67, type: 3}
   roomPrefabs:
   - {fileID: 5715243176192672837, guid: be9f9d84c8d304a4eb966b1ad90b4e35, type: 3}
+  partnerPrefab: {fileID: 9220125057344755603, guid: 91f78285557824c08a31c67a7bf17a04, type: 3}
+  gatePrefab: {fileID: 0}
+  fallbackGateTint: {r: 1, g: 0.35, b: 0.35, a: 1}
 --- !u!4 &228753480
 Transform:
   m_ObjectHideFlags: 0
@@ -1640,7 +1643,7 @@ GameObject:
   - component: {fileID: 1410175467}
   m_Layer: 0
   m_Name: Player
-  m_TagString: Untagged
+  m_TagString: Player
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
@@ -1677,9 +1680,18 @@ MonoBehaviour:
   startDirection: {x: 0, y: 1}
   swipeThreshold: 30
   spriteRenderer: {fileID: 0}
+  animator: {fileID: 1410175466}
+  characters:
+  - displayName: Glork
+    runningController: {fileID: 9100000, guid: 4cdb01d24aad944ccbc10b08c649d515, type: 2}
+    idleSprite: {fileID: -1977020894090979267, guid: 4688eeb271c5a4c2fa7b35c00bc461b3, type: 3}
+  - displayName: Flerb
+    runningController: {fileID: 9100000, guid: 8dd84628477c546e6a394055e2908129, type: 2}
+    idleSprite: {fileID: -1977020894090979267, guid: 93e1599a8316744cfac1fa28a7fc3d02, type: 3}
+  currentCharacterIndex: 0
   bulletPrefab: {fileID: 7843090472891878757, guid: 8e0428b8a77914a8181bdfc4cb68d924, type: 3}
   firePoint: {fileID: 1318910665}
-  shootRange: 6
+  shootRange: 8
   shootLaneWidth: 1
 --- !u!50 &1410175464
 Rigidbody2D:
