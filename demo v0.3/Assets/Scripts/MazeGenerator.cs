@@ -3,6 +3,19 @@ using UnityEngine;
 
 public class MazeGenerator : MonoBehaviour
 {
+    [Header("Partner Placement (stranded-partner fix)")]
+    [Tooltip("The partner will not be placed in the bottom N rows of a wide band. Prevents them sitting right at the floor where the rising flood reaches them first.")]
+    public int partnerMinLocalRow = 3;
+    [Tooltip("The shortest route to the partner may climb at most this many rows ABOVE the partner's own row. Stops 'partner is low but you must go way up high to reach them'.")]
+    public int partnerMaxClimbAboveCell = 3;
+    
+    [Header("Cats (normal single-corridor bands)")]
+    [Tooltip("Multiplies settings.catSpawnChance for normal bands only. Wide bands are unaffected. 1 = old behavior.")]
+    public float normalBandCatChanceMultiplier = 2.5f;
+    [Tooltip("Every normal band gets at least this many cats (once above the min spawn height).")]
+    public int minCatsPerNormalBand = 2;
+    [Tooltip("Hard cap per normal band so it stays fair. Raise for a harder game.")]
+    public int maxCatsPerNormalBand = 6;
     [Header("Config")]
     public GameSettings settings;
 
@@ -27,6 +40,7 @@ public class MazeGenerator : MonoBehaviour
     private class PartnerQuest
     {
         public int startRow;
+        public float partnerWorldY; 
         public int endRow;
         public bool resolved;   // partner has been found, gate is open
         public bool completed;  // player has actually climbed out through the exit - protections end here
@@ -428,43 +442,85 @@ public class MazeGenerator : MonoBehaviour
 
     // Picks where the partner waits: a cell OFF the shortest entry->exit route, as far from that
     // route (and from the entrance) as possible, so the player really has to explore a side branch.
-    private (int r, int c)? ChoosePartnerCell(MazeCell[][] band, int numRows, int bandColumns,
-        HashSet<(int, int)> spawnCells, List<(int r, int c)> path, System.Random rng)
+private (int r, int c)? ChoosePartnerCell(MazeCell[][] band, int numRows, int bandColumns,
+    HashSet<(int, int)> spawnCells, List<(int r, int c)> path, System.Random rng)
+{
+    var pathSet = new HashSet<(int, int)>();
+    foreach (var p in path) pathSet.Add((p.r, p.c));
+ 
+    var distFromPath = BfsDistances(band, numRows, bandColumns, path);
+    var distFromEntry = BfsDistances(band, numRows, bandColumns, new List<(int r, int c)> { path[0] });
+    var maxRowOnRoute = MaxRowReachedOnRoute(band, numRows, bandColumns, (path[0].r, path[0].c));
+ 
+    List<(int, int)> best = new List<(int, int)>();
+ 
+    // Pass 0 = strict rules. Pass 1 = relaxed. Pass 2 = original behavior (guarantees a partner always exists).
+    for (int pass = 0; pass < 3 && best.Count == 0; pass++)
     {
-        var pathSet = new HashSet<(int, int)>();
-        foreach (var p in path) pathSet.Add((p.r, p.c));
-
-        var distFromPath = BfsDistances(band, numRows, bandColumns, path);
-        var distFromEntry = BfsDistances(band, numRows, bandColumns, new List<(int r, int c)> { path[0] });
-
+        int minRow = pass == 0 ? partnerMinLocalRow : (pass == 1 ? partnerMinLocalRow / 2 : 0);
+        int maxClimb = pass == 0 ? partnerMaxClimbAboveCell : (pass == 1 ? partnerMaxClimbAboveCell + 3 : int.MaxValue);
+ 
         float bestScore = -1f;
-        var best = new List<(int, int)>();
         foreach (var cell in spawnCells)
         {
             if (pathSet.Contains(cell)) continue;
             if (!distFromPath.TryGetValue(cell, out int dp)) continue;
             if (!distFromEntry.TryGetValue(cell, out int de)) continue;
-
+            if (!maxRowOnRoute.TryGetValue(cell, out int highestRow)) continue;
+ 
+            if (cell.Item1 < minRow) continue;
+            if (maxClimb != int.MaxValue && highestRow - cell.Item1 > maxClimb) continue;
+ 
             float score = dp + 0.5f * de;
             if (score > bestScore + 0.001f) { bestScore = score; best.Clear(); best.Add(cell); }
             else if (Mathf.Abs(score - bestScore) <= 0.001f) best.Add(cell);
         }
-
-        (int r, int c) chosen;
-        if (best.Count > 0)
-        {
-            var pick = best[rng.Next(best.Count)];
-            chosen = (pick.Item1, pick.Item2);
-        }
-        else
-        {
-            // Degenerate band with no side branches: fall back to the middle of the route.
-            chosen = path[path.Count / 2];
-        }
-
-        band[chosen.r][chosen.c].obstacle = ObstacleType.None; // never bury the partner in steam/wire
-        return chosen;
     }
+ 
+    (int r, int c) chosen;
+    if (best.Count > 0)
+    {
+        var pick = best[rng.Next(best.Count)];
+        chosen = (pick.Item1, pick.Item2);
+    }
+    else
+    {
+        chosen = path[path.Count / 2]; // degenerate band with no side branches
+    }
+ 
+    band[chosen.r][chosen.c].obstacle = ObstacleType.None; // never bury the partner in steam/wire
+    return chosen;
+}
+ 
+// For every reachable cell: the highest row you'd touch on the shortest route from the entry to it.
+private Dictionary<(int, int), int> MaxRowReachedOnRoute(MazeCell[][] band, int numRows, int bandColumns, (int r, int c) start)
+{
+    var best = new Dictionary<(int, int), int>();
+    var queue = new Queue<(int, int)>();
+    best[start] = start.r;
+    queue.Enqueue(start);
+ 
+    void Visit(bool open, int nr, int nc, int highestSoFar)
+    {
+        if (!open) return;
+        if (nr < 0 || nr >= numRows || nc < 0 || nc >= bandColumns) return;
+        if (best.ContainsKey((nr, nc))) return;
+        best[(nr, nc)] = Mathf.Max(highestSoFar, nr);
+        queue.Enqueue((nr, nc));
+    }
+ 
+    while (queue.Count > 0)
+    {
+        var (r, c) = queue.Dequeue();
+        int m = best[(r, c)];
+        MazeCell cell = band[r][c];
+        Visit(!cell.wallN, r + 1, c, m);
+        Visit(!cell.wallS, r - 1, c, m);
+        Visit(!cell.wallE, r, c + 1, m);
+        Visit(!cell.wallW, r, c - 1, m);
+    }
+    return best;
+}
 
     private Dictionary<(int, int), int> BfsDistances(MazeCell[][] band, int numRows, int bandColumns, List<(int r, int c)> sources)
     {
@@ -525,12 +581,28 @@ public class MazeGenerator : MonoBehaviour
         // Partner
         int partnerWorldRow = startRow + partnerCell.r;
         Vector3 partnerPos = new Vector3(xOffset + partnerCell.c * CellSize + CellSize * 0.5f, partnerWorldRow * CellSize + CellSize * 0.5f, 0f);
+        quest.partnerWorldY = partnerPos.y;
         var partnerGO = Instantiate(partnerPrefab, partnerPos, Quaternion.identity, transform);
         var partner = partnerGO.GetComponent<PartnerCharacter>();
         if (partner != null) partner.Init(this, quest.startRow);
         RegisterSpawned(partnerPos, partnerGO);
 
         partnerQuests.Add(quest);
+    }
+
+    public bool TryGetUnfoundPartnerY(float worldY, out float partnerWorldY)
+    {
+        int row = Mathf.FloorToInt(worldY / CellSize);
+        foreach (var q in partnerQuests)
+        {
+            if (!q.resolved && row >= q.startRow && row <= q.endRow)
+            {
+                partnerWorldY = q.partnerWorldY;
+                return true;
+            }
+        }
+        partnerWorldY = 0f;
+        return false;
     }
 
     private bool[,] BuildWideBandBlockedMask(int numRows, int bandColumns, int entryCol, System.Random rng)

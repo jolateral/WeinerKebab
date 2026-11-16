@@ -148,6 +148,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: ad1d4056824c648b2add77c6a327f68c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::MazeGenerator
+  partnerMinLocalRow: 3
+  partnerMaxClimbAboveCell: 3
+  normalBandCatChanceMultiplier: 2.5
+  minCatsPerNormalBand: 2
+  maxCatsPerNormalBand: 6
   settings: {fileID: 11400000, guid: b5a59f26be8534d4681dde46a9d102ed, type: 2}
   wallSegmentPrefab: {fileID: 4457398736981378645, guid: d75c7a289780645309bb5ac095e5fdfb, type: 3}
   steamPrefab: {fileID: 3810744935838503289, guid: 00b9cc13f9d3d4a758671e8e64f52664, type: 3}
@@ -539,6 +544,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::CameraFollow
   player: {fileID: 1410175461}
+  partnerKeepVisibleMargin: 1.5
   settings: {fileID: 11400000, guid: b5a59f26be8534d4681dde46a9d102ed, type: 2}
   mazeGenerator: {fileID: 228753479}
   playerController: {fileID: 1410175462}
@@ -1395,6 +1401,7 @@ GameObject:
   - component: {fileID: 1360436502}
   - component: {fileID: 1360436501}
   - component: {fileID: 1360436500}
+  - component: {fileID: 1360436504}
   m_Layer: 5
   m_Name: Canvas
   m_TagString: Untagged
@@ -1490,6 +1497,22 @@ RectTransform:
   m_AnchoredPosition: {x: 0, y: 0}
   m_SizeDelta: {x: 0, y: 0}
   m_Pivot: {x: 0, y: 0}
+--- !u!114 &1360436504
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1360436499}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8e2836e169a65495ba1662d08f1d4924, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::FireButtonPlacer
+  fireButton: {fileID: 898758030}
+  margin: {x: 90, y: 200}
+  buttonSize: {x: 220, y: 220}
+  rightHandedByDefault: 1
 --- !u!1 &1395865396
 GameObject:
   m_ObjectHideFlags: 0
@@ -1679,6 +1702,15 @@ MonoBehaviour:
   settings: {fileID: 11400000, guid: b5a59f26be8534d4681dde46a9d102ed, type: 2}
   startDirection: {x: 0, y: 1}
   swipeThreshold: 30
+  mazeGenerator: {fileID: 0}
+  enableJunctionAssist: 1
+  turnBufferSeconds: 0.4
+  junctionEarlyCells: 0.3
+  junctionLateCells: 0.4
+  turnSnapSeconds: 0.15
+  turnSnapSpeed: 14
+  junctionSlowMultiplier: 0.8
+  swipeOnDrag: 1
   spriteRenderer: {fileID: 0}
   animator: {fileID: 1410175466}
   characters:

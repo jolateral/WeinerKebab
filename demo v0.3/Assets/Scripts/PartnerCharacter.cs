@@ -113,9 +113,23 @@ public class PartnerCharacter : MonoBehaviour
         SpawnLeftBehind(p, leavingName, leavingSprite, wasFlipped);
 
         if (mazeGen != null) mazeGen.ResolvePartnerQuest(questId);
-        if (swapSound != null) AudioSource.PlayClipAtPoint(swapSound, transform.position, swapSoundVolume);
+        if (swapSound != null) Play2DSound(swapSound, swapSoundVolume);
 
         Destroy(gameObject);
+    }
+
+    // PlayClipAtPoint is a 3D sound, so it is almost inaudible when the camera is ~10 units away.
+    // This plays the clip as a flat 2D sound at full requested volume instead.
+    private void Play2DSound(AudioClip clip, float volume)
+    {
+        var go = new GameObject("SwapSound_OneShot");
+        var src = go.AddComponent<AudioSource>();
+        src.clip = clip;
+        src.volume = volume;
+        src.spatialBlend = 0f; // 2D
+        src.playOnAwake = false;
+        src.Play();
+        Destroy(go, clip.length + 0.1f);
     }
 
     // The left-behind character is pure scenery: a sprite with NO collider and NO scripts. The player

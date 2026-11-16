@@ -19,6 +19,8 @@ using UnityEngine;
 public class CameraFollow : MonoBehaviour
 {
     public Transform player;
+        [Tooltip("While a wide band's partner hasn't been found, the flood stops rising once the partner would come closer than this (world units) to the bottom screen edge. Guarantees the partner is never lost off-screen.")]
+    public float partnerKeepVisibleMargin = 1.5f;
     public GameSettings settings;
     public MazeGenerator mazeGenerator;
     [Tooltip("Optional but recommended: assign the player's PlayerController so the camera can grant post-stun death grace and react to wire hits with a shake.")]
@@ -217,12 +219,17 @@ public class CameraFollow : MonoBehaviour
         questRiseModifier = Mathf.SmoothDamp(questRiseModifier, wideBandMultiplier, ref questRiseModifierVelocity, settings.rubberBandSmoothTime);
         float riseSpeed = baseRiseSpeed * rubberBandMultiplier * questRiseModifier;
 
-        if (partnerQuestActive)
+ if (partnerQuestActive)
         {
-            // Safety net: if the player is nearly off the bottom of the screen, freeze the rise
-            // entirely so they can never be pushed out of view while hunting for the partner.
+            // Safety net: if the player is nearly off the bottom of the screen, freeze the rise.
             float edgeNow = basePosition.y - cam.orthographicSize;
             if (player.position.y - edgeNow < settings.partnerQuestMinBufferAboveEdge) riseSpeed = 0f;
+ 
+            // NEW: never let the flood/camera rise past a partner that hasn't been found yet.
+            if (mazeGenerator != null && mazeGenerator.TryGetUnfoundPartnerY(player.position.y, out float partnerY))
+            {
+                if (partnerY - edgeNow < partnerKeepVisibleMargin) riseSpeed = 0f;
+            }
         }
         risingFloorY += riseSpeed * Time.deltaTime;
 
