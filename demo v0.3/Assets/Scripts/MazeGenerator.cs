@@ -37,6 +37,16 @@ public class MazeGenerator : MonoBehaviour
     public GameObject gatePrefab;
     public Color fallbackGateTint = new Color(1f, 0.35f, 0.35f, 1f);
 
+    [Header("Rounded Pipe Corners")]
+    [Tooltip("Sprite prefab for an L-shaped elbow. Art layout: a square sprite containing a quarter-ring pipe whose arc is centered on the sprite's TOP-RIGHT corner (outer radius = full sprite size). Pipe ends exit through the top-left edge and the bottom-right edge. Rotated automatically. The straight walls are shortened so this piece REPLACES them at corners.")]
+    public GameObject cornerPrefab;
+    [Tooltip("Elbow sprite size as a multiple of wall thickness. 2 = a 64px elbow for a 32px-thick pipe (art: ring outer radius 64, inner radius 32). Larger = wider, smoother bend. Needs wall thickness x (2 x this - 1) <= cell size.")]
+    public float cornerSizeInThickness = 2f;
+    [Tooltip("Optional. Round hub placed where 3 or 4 pipes meet (T / + junctions) and at dead-end caps. No rotation is applied.")]
+    public GameObject junctionPrefab;
+    [Tooltip("World-unit thickness of the wall pipe. 0 = read it from the wall segment prefab automatically.")]
+    public float wallThicknessOverride = 0f;
+
     private class PartnerQuest
     {
         public int startRow;
@@ -47,6 +57,13 @@ public class MazeGenerator : MonoBehaviour
         public GameObject gate;
     }
     private List<PartnerQuest> partnerQuests = new List<PartnerQuest>();
+
+    // Every wall segment that was actually spawned, in absolute grid coordinates. Used to figure out
+    // what shape each grid vertex is (L-corner, T, etc.) so the right pipe joint can be placed.
+    // Horizontal edge key: (absolute column, vertex row). Vertical edge key: (vertex column, cell row).
+    private Dictionary<Vector2Int, GameObject> wallObjsH = new Dictionary<Vector2Int, GameObject>();
+    private Dictionary<Vector2Int, GameObject> wallObjsV = new Dictionary<Vector2Int, GameObject>();
+    private Dictionary<Vector2Int, GameObject> jointObjs = new Dictionary<Vector2Int, GameObject>();
 
     private List<MazeCell[]> rows = new List<MazeCell[]>();
     private int generatedUpToRow = -1;
@@ -112,6 +129,16 @@ public class MazeGenerator : MonoBehaviour
             }
         }
         foreach (var k in toRemove) { spawnedByRow.Remove(k); rowLayout.Remove(k); }
+
+        if (toRemove.Count > 0)
+        {
+            int pruneBelow = cleanupBelowRow - 1;
+            PruneEdgeDict(wallObjsH, pruneBelow);
+            PruneEdgeDict(wallObjsV, pruneBelow);
+            var deadJoints = new List<Vector2Int>();
+            foreach (var kvp in jointObjs) if (kvp.Key.y < pruneBelow) deadJoints.Add(kvp.Key);
+            foreach (var k in deadJoints) jointObjs.Remove(k);
+        }
 
         partnerQuests.RemoveAll(q => q.endRow < cleanupBelowRow);
     }
@@ -389,6 +416,7 @@ public class MazeGenerator : MonoBehaviour
         }
 
         SpawnBandGeometry(startRow, spawnCells, band, xOffset);
+        SpawnJoints(startRow, spawnCells, xOffset);
         SpawnAmmoAndCats(startRow, numRows, band, spawnCells, path, offPathDetourCells, xOffset, rng, partnerCell);
         if (partnerCell.HasValue) SpawnPartnerAndGate(startRow, numRows, xOffset, path, partnerCell.Value);
         TrySpawnBackgroundRoom(startRow, numRows, xOffset, spawnCells, rng);
@@ -948,14 +976,195 @@ private Dictionary<(int, int), int> MaxRowReachedOnRoute(MazeCell[][] band, int 
         }
     }
 
+    private void PruneEdgeDict(Dictionary<Vector2Int, GameObject> dict, int belowRow)
+    {
+        var dead = new List<Vector2Int>();
+        foreach (var kvp in dict) if (kvp.Key.y < belowRow) dead.Add(kvp.Key);
+        foreach (var k in dead) dict.Remove(k);
+    }
+
     private void SpawnWallIfNeeded(bool present, Vector3 cellCenter, Vector3 localOffset, bool horizontal, int worldRow)
     {
         if (!present || wallSegmentPrefab == null) return;
         Vector3 pos = cellCenter + localOffset;
+
+        // Each grid edge gets exactly ONE wall object (neighboring cells share edges), so it can be
+        // trimmed cleanly where an elbow takes over.
+        Vector2Int key = horizontal
+            ? new Vector2Int(Mathf.RoundToInt(pos.x / CellSize - 0.5f), Mathf.RoundToInt(pos.y / CellSize))
+            : new Vector2Int(Mathf.RoundToInt(pos.x / CellSize), Mathf.FloorToInt(pos.y / CellSize));
+        var dict = horizontal ? wallObjsH : wallObjsV;
+        if (dict.TryGetValue(key, out var existing) && existing != null) return;
+
         Quaternion rot = horizontal ? Quaternion.identity : Quaternion.Euler(0, 0, 90);
         var go = Instantiate(wallSegmentPrefab, pos, rot, transform);
         go.transform.localScale = new Vector3(CellSize, go.transform.localScale.y, go.transform.localScale.z);
         spawnedByRow[worldRow].Add(go);
+        dict[key] = go;
+    }
+
+    // ---------------- Rounded pipe elbows ----------------
+
+    private float GetWallThickness()
+    {
+        if (wallThicknessOverride > 0f) return wallThicknessOverride;
+        if (wallSegmentPrefab == null) return CellSize * 0.2f;
+        var sr = wallSegmentPrefab.GetComponentInChildren<SpriteRenderer>();
+        if (sr != null && sr.sprite != null)
+            return sr.sprite.bounds.size.y * Mathf.Abs(sr.transform.lossyScale.y);
+        return Mathf.Abs(wallSegmentPrefab.transform.localScale.y);
+    }
+
+    // How much of a straight wall the elbow replaces at an L-corner end.
+    private float CornerTrim(float thickness)
+    {
+        float trim = thickness * cornerSizeInThickness - thickness * 0.5f;
+        return Mathf.Clamp(trim, 0f, CellSize * 0.5f - 0.001f);
+    }
+
+    private bool IsLCornerVertex(Vector2Int v)
+    {
+        if (cornerPrefab == null) return false;
+        bool e = wallObjsH.ContainsKey(new Vector2Int(v.x, v.y));
+        bool w = wallObjsH.ContainsKey(new Vector2Int(v.x - 1, v.y));
+        bool n = wallObjsV.ContainsKey(new Vector2Int(v.x, v.y));
+        bool s = wallObjsV.ContainsKey(new Vector2Int(v.x, v.y - 1));
+        int count = (e ? 1 : 0) + (w ? 1 : 0) + (n ? 1 : 0) + (s ? 1 : 0);
+        return count == 2 && (e || w) && (n || s);
+    }
+
+    // Re-sizes one wall segment so it stops where an elbow begins. The collider keeps its FULL
+    // length, so collisions behave exactly as they did before.
+    private void RefreshWallLayout(Vector2Int key, bool horizontal, float trim)
+    {
+        var dict = horizontal ? wallObjsH : wallObjsV;
+        if (!dict.TryGetValue(key, out var go) || go == null) return;
+
+        Vector2Int startV = key;
+        Vector2Int endV = horizontal ? new Vector2Int(key.x + 1, key.y) : new Vector2Int(key.x, key.y + 1);
+        float trimA = IsLCornerVertex(startV) ? trim : 0f;
+        float trimB = IsLCornerVertex(endV) ? trim : 0f;
+
+        float length = Mathf.Max(0.01f, CellSize - trimA - trimB);
+        float fullStart = (horizontal ? key.x : key.y) * CellSize;
+        float newCenter = fullStart + trimA + length * 0.5f;
+        float fullCenter = fullStart + CellSize * 0.5f;
+
+        Vector3 pos = go.transform.position;
+        if (horizontal) pos.x = newCenter; else pos.y = newCenter;
+        go.transform.position = pos;
+
+        Vector3 sc = go.transform.localScale;
+        sc.x = length;
+        go.transform.localScale = sc;
+
+        var bc = go.GetComponent<BoxCollider2D>();
+        var pbc = wallSegmentPrefab.GetComponent<BoxCollider2D>();
+        if (bc != null && pbc != null)
+        {
+            float d = fullCenter - newCenter; // world shift along the wall's own axis
+            bc.size = new Vector2(pbc.size.x * CellSize / length, bc.size.y);
+            bc.offset = new Vector2(pbc.offset.x + d / length, bc.offset.y);
+        }
+    }
+
+    private void RefreshWallsAtVertex(Vector2Int v, float trim)
+    {
+        RefreshWallLayout(new Vector2Int(v.x, v.y), true, trim);
+        RefreshWallLayout(new Vector2Int(v.x - 1, v.y), true, trim);
+        RefreshWallLayout(new Vector2Int(v.x, v.y), false, trim);
+        RefreshWallLayout(new Vector2Int(v.x, v.y - 1), false, trim);
+    }
+
+    // Looks at every grid vertex touched by this band's cells and places an elbow (or optional
+    // junction hub) wherever pipes meet, then trims the straight walls that run into an elbow.
+    // Vertices on the band's bottom edge get re-evaluated, because the band below couldn't see the
+    // walls that start above them.
+    private void SpawnJoints(int startRow, HashSet<(int, int)> spawnCells, float xOffset)
+    {
+        if (cornerPrefab == null && junctionPrefab == null) return;
+
+        int colShift = Mathf.RoundToInt(xOffset / CellSize);
+        var vertices = new HashSet<Vector2Int>();
+        foreach (var (r, c) in spawnCells)
+        {
+            int vx = c + colShift;
+            int vy = startRow + r;
+            vertices.Add(new Vector2Int(vx, vy));
+            vertices.Add(new Vector2Int(vx + 1, vy));
+            vertices.Add(new Vector2Int(vx, vy + 1));
+            vertices.Add(new Vector2Int(vx + 1, vy + 1));
+        }
+
+        float thickness = GetWallThickness();
+        float trim = CornerTrim(thickness);
+
+        foreach (var v in vertices)
+        {
+            bool east  = wallObjsH.ContainsKey(new Vector2Int(v.x, v.y));
+            bool west  = wallObjsH.ContainsKey(new Vector2Int(v.x - 1, v.y));
+            bool north = wallObjsV.ContainsKey(new Vector2Int(v.x, v.y));
+            bool south = wallObjsV.ContainsKey(new Vector2Int(v.x, v.y - 1));
+            int count = (east ? 1 : 0) + (west ? 1 : 0) + (north ? 1 : 0) + (south ? 1 : 0);
+
+            GameObject prefab = null;
+            float angle = 0f;
+            bool isL = count == 2 && (east || west) && (north || south);
+            if (isL)
+            {
+                prefab = cornerPrefab;
+                // Art is drawn with arms East + North (angle 0). Rotate counter-clockwise from there.
+                if (east && north) angle = 0f;
+                else if (west && north) angle = 90f;
+                else if (west && south) angle = 180f;
+                else angle = 270f; // east && south
+            }
+            else if (count >= 3 || count == 1)
+            {
+                prefab = junctionPrefab;
+            }
+
+            // Replace whatever was here before (the band below may have judged this vertex with less info).
+            if (jointObjs.TryGetValue(v, out var old))
+            {
+                if (old != null) Destroy(old);
+                jointObjs.Remove(v);
+            }
+
+            RefreshWallsAtVertex(v, trim);
+            if (prefab == null) continue;
+
+            Vector3 vertexPos = new Vector3(v.x * CellSize, v.y * CellSize, 0f);
+            GameObject go;
+
+            if (isL)
+            {
+                // The elbow's square sits so it covers the corner AND the first stretch of both arms.
+                float size = thickness * cornerSizeInThickness;
+                float inset = (size - thickness) * 0.5f;
+                Quaternion rot = Quaternion.Euler(0f, 0f, angle);
+                Vector3 pos = vertexPos + rot * new Vector3(inset, inset, 0f);
+                go = Instantiate(prefab, pos, rot, transform);
+
+                var sr = go.GetComponentInChildren<SpriteRenderer>();
+                float native = (sr != null && sr.sprite != null) ? sr.sprite.bounds.size.y : 1f;
+                float s = size / Mathf.Max(0.0001f, native);
+                go.transform.localScale = new Vector3(s, s, 1f);
+            }
+            else
+            {
+                go = Instantiate(prefab, vertexPos, Quaternion.identity, transform);
+                var sr = go.GetComponentInChildren<SpriteRenderer>();
+                float native = (sr != null && sr.sprite != null) ? sr.sprite.bounds.size.y : 1f;
+                float s = thickness / Mathf.Max(0.0001f, native);
+                go.transform.localScale = new Vector3(s, s, 1f);
+            }
+
+            jointObjs[v] = go;
+            int bucket = Mathf.Max(0, v.y);
+            if (!spawnedByRow.ContainsKey(bucket)) spawnedByRow[bucket] = new List<GameObject>();
+            spawnedByRow[bucket].Add(go);
+        }
     }
 
     private void SpawnObstacle(MazeCell cell, Vector3 center, int worldRow)
